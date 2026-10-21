@@ -1,0 +1,46 @@
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Model Checkpoints & Weights
+*.pth
+*.pt
+*.bin
+*.onnx
+*.safetensors
+
+# Node & Frontend
+node_modules/
+.npm/
+dist/
+.cache/
+
+# Environment & Credentials
+.env
+.env.*
+!*.example
+*credentials*.json
+*service-account*.json
+*secret*.json
+
+# Logs & Databases
+*.log
+*.sqlite3
+*.db

@@ -17,7 +17,7 @@
 
 ## 🧑🏻‍💻 EPITEXT 소개
 
-EPITEXT는 훼손·유실된 탁본(금석문) 문자를 멀티모달 AI로 복원하고, 최종 판독과 번역까지 이어지는 탁본 전문가 의사결정 지원 서비스입니다. 탁본 이미지를 업로드하면 전처리와 OCR 앙상블(Google Vision OCR + 고문서 특화 OCR) 로 텍스트를 추출하고, 글자 손상 정도를 자동 분류해 복원 전략을 달리 적용합니다. 형태가 완전히 사라진 영역은 언어 모델(SikuRoBERTa) 이 문맥 기반으로 추론하고, 일부 획이 남은 영역은 비전 모델(Swin V2) 까지 관여하여 잔여 획을 분석해 예측합니다. 두 모델의 결과는 F1 Score로 통합되어 Top-5 후보로 제시되며, 사용자는 번역 하이라이트를 통해 빠르고 신뢰성 있게 탁본 손상 영역을 검수·확정할 수 있습니다.
+EPITEXT는 훼손, 유실된 탁본(금석문) 문자를 멀티모달 AI로 복원하고, 최종 판독과 번역까지 이어지는 탁본 전문가 의사결정 지원 서비스입니다. 탁본 이미지를 업로드하면 전처리와 OCR 앙상블(Google Vision OCR + 고문서 특화 OCR) 로 텍스트를 추출하고, 글자 손상 정도를 자동 분류해 복원 전략을 달리 적용합니다. 형태가 완전히 사라진 영역은 언어 모델(SikuRoBERTa) 이 문맥 기반으로 추론하고, 일부 획이 남은 영역은 비전 모델(Swin V2) 까지 관여하여 잔여 획을 분석해 예측합니다. 두 모델의 결과는 F1 Score로 통합되어 Top-5 후보로 제시되며, 사용자는 번역 하이라이트를 통해 빠르고 신뢰성 있게 탁본 손상 영역을 검수, 확정할 수 있습니다.
 
 ### 🎥 EPITEXT 시연 영상
 
@@ -42,7 +42,7 @@ EPITEXT는 훼손·유실된 탁본(금석문) 문자를 멀티모달 AI로 복�
 탁본 복원 시스템의 백엔드 API 서버입니다. AI 기반 OCR, 구두점 복원, 한자 복원, 번역 기능을 제공합니다.
 
 서비스 Frontend 소스 코드는 아래 GitHub 저장소에서 확인하실 수 있습니다.
-- 🔗 Frontend Repository: https://github.com/jae2022/Epitext_Front
+- 🔗 Frontend Repository: https://github.com/rntqkdl/Epitext_front
 
 ## 🖥️ 시스템 요구사항
 
@@ -63,7 +63,7 @@ EPITEXT는 훼손·유실된 탁본(금석문) 문자를 멀티모달 AI로 복�
 ### 1단계: 저장소 클론
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/rntqkdl/Epitext_back.git
 cd Epitext_Back
 ```
 

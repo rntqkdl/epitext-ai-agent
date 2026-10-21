@@ -48,8 +48,8 @@ flowchart TD
 
 ```
 epitext-ai-agent/
-├── backend/              # Flask/FastAPI 백엔드 소스 (jincerity/Epitext_back 기반)
-├── frontend/             # React Vite D3 프론트엔드 소스 (jincerity/Epitext_front 기반)
+├── backend/              # Flask/FastAPI 백엔드 소스 (rntqkdl/Epitext_back 기반)
+├── frontend/             # React Vite D3 프론트엔드 소스 (rntqkdl/Epitext_front 기반)
 ├── agent_core/           # LangGraph StateGraph, FastMCP, HITL 구현
 ├── data/                 # 금석문 사료 DB 및 샘플 탁본 이미지
 ├── .gitignore            # Git 제외 설정

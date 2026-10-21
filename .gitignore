@@ -44,3 +44,6 @@ dist/
 *.log
 *.sqlite3
 *.db
+
+!docs/images/*.png
+!frontend/public/*.png

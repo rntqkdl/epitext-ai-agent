@@ -8,7 +8,7 @@
   EpiText 복원 검토 기록부 - 훼손 금석문 탁본의 잔여 획 및 문맥 추론 기반 이상 판독 검토와 사료 교차검증 AI Agent
 
 - **핵심 목표**:
-  탁본 이미지의 문자별 손상 진단 결과, 비전 잔여 획 특징 맵, 언어 모델 문맥 예측 로그를 연결하고, 고전문헌 표준과 대조해 판독 누락 및 오인식과 관련된 검토 대상을 자동 선별. 국사편찬위원회 삼국·고려 금석문 DB, 규장각, 조선왕조실록 등 시대별 사료 DB를 검색해 후보 한자별 용례 근거, 시대적 적합성, 추가 확인 항목을 제시하고, 한학자 및 문화재 연구원이 승인한 판독 결과를 최종 복원문과 공인 번역 보고서로 기록.
+  탁본 이미지의 문자별 손상 진단 결과, 비전 잔여 획 특징 맵, 언어 모델 문맥 예측 로그를 연결하고, 고전문헌 표준과 대조해 판독 누락 및 오인식과 관련된 검토 대상을 자동 선별. 국사편찬위원회 삼국, 고려 금석문 DB, 규장각, 조선왕조실록 등 시대별 사료 DB를 검색해 후보 한자별 용례 근거, 시대적 적합성, 추가 확인 항목을 제시하고, 한학자 및 문화재 연구원이 승인한 판독 결과를 최종 복원문과 공인 번역 보고서로 기록.
 
 - **주요 기술**:
   LangGraph 기반 도구 사용 Multi-Agent (Supervisor, Vision, Context, History RAG, Glyph Inpainter), Swin Transformer V2 (잔여 획 분석 FastMCP Tool), SikuRoBERTa MLM (고문헌 문맥 추론 FastMCP Tool), 사료 하이브리드 RAG (ChromaDB Vector + SQLite FTS5 BM25), Human-in-the-Loop (StateGraph interrupt 승인 루프), SSE (실시간 추론 근거 스트리밍), LangSmith (추론 트레이스 및 호출 비용 모니터링), React, FastAPI, SQLite
@@ -214,7 +214,7 @@ class AgentState(TypedDict):
    - 출력: `masked_candidates` (List[Dict])
 
 3. **`historical_corpus_retriever` (사료 교차검증 & 이견 조율)**:
-   - 역할: 삼국·고려·조선 사료 DB에서 후보 한자군의 실제 용례를 검색하고, 복수 판독본(국편위, 규장각, 지식이음) 간 학설 차이를 대조 추출.
+   - 역할: 삼국, 고려, 조선 사료 DB에서 후보 한자군의 실제 용례를 검색하고, 복수 판독본(국편위, 규장각, 지식이음) 간 학설 차이를 대조 추출.
    - 검색 방식: Dense Vector (ChromaDB) + BM25 (SQLite FTS5) 하이브리드 검색.
    - 입력: `candidate_chars` (List[str]), `surrounding_text` (str), `era` (str)
    - 출력: `historical_matches` (List[Dict]), `scholarly_conflicts` (List[Dict])
@@ -287,7 +287,7 @@ class AgentState(TypedDict):
 
 우리는 이 문제를 해결하기 위해 다음 5가지 핵심 아젠다를 잡았어:
 - 아젠다 1: Canny Edge 밀도와 픽셀 마모율을 결합하여 정상 글자(85%)는 0.01초 만에 Fast-Path로 통과시키고 손상 글자(15%)만 정밀 복원 큐로 보내는 Fast-Triage 판별 수식.
-- 아젠다 2: 비전과 문맥 예측이 충돌할 때 국사편찬위원회 삼국·고려 금석문 DB와 동이전 코퍼스를 하이브리드(BM25 + Dense) 검색하여 중재하는 Conflict Arbitration 노드 설계.
+- 아젠다 2: 비전과 문맥 예측이 충돌할 때 국사편찬위원회 삼국, 고려 금석문 DB와 동이전 코퍼스를 하이브리드(BM25 + Dense) 검색하여 중재하는 Conflict Arbitration 노드 설계.
 - 아젠다 3: 1차 복원된 전체 문장에서 글로벌 엔티티를 추출한 뒤, 확신도 낮은 글자에 힌트를 주입해 역방향 재추론하는 LangGraph Self-Correction 피드백 루프.
 - 아젠다 4: 삼국시대 고대 사료 판독 시 조선시대 실록 검색을 차단하고 고대 금석문 DB로 격리 라우팅하는 EraClassifier 노드 조건.
 - 아젠다 5: 유니코드 복원 완료 후, 우리 논문(KIIT 2026)의 Future Work였던 '글리프 레벨 시각적 획 형상 복원(ControlNet Inpainting)'을 결합하는 파이프라인 순서.

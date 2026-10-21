@@ -3,9 +3,9 @@
 
   <p>
     <img src="https://img.shields.io/badge/Architecture-LangGraph_StateGraph-ee7542?style=for-the-badge" />
-    <img src="https://img.shields.io/badge/Inference_Latency--52.9%25_(708ms)-2ea44f?style=for-the-badge" />
-    <img src="https://img.shields.io/badge/Top--1_Accuracy-100.0%25_(+42.9%25p)-0969da?style=for-the-badge" />
-    <img src="https://img.shields.io/badge/HITL_Workload--71.4%25_(14→4)-8250df?style=for-the-badge" />
+    <img src="https://img.shields.io/badge/Inference_Latency---52.9%25_(708ms)-2ea44f?style=for-the-badge" />
+    <img src="https://img.shields.io/badge/Top--1_Accuracy-100.0%25_(%2B42.9%25p)-0969da?style=for-the-badge" />
+    <img src="https://img.shields.io/badge/HITL_Workload---71.4%25_(14_to_4)-8250df?style=for-the-badge" />
   </p>
 
   <p>

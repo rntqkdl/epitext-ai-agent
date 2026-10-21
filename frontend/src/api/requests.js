@@ -258,3 +258,29 @@ export const previewTranslation = async (rubbingId, targetId, selectedCharacter)
     throw error;
   }
 };
+
+/**
+ * AI 에이전트 Before vs After 벤치마크 및 사료 교차검증 결과 조회
+ */
+export const getAgentBenchmark = async () => {
+  try {
+    const response = await apiClient.get("/api/agent/benchmark");
+    return response.data;
+  } catch (error) {
+    console.error("Failed to fetch agent benchmark:", error);
+    throw error;
+  }
+};
+
+/**
+ * AI 에이전트 HITL 전문가 승인 처리
+ */
+export const approveAgentHitl = async (payload) => {
+  try {
+    const response = await apiClient.post("/api/agent/hitl/approve", payload);
+    return response.data;
+  } catch (error) {
+    console.error("Failed to approve agent HITL:", error);
+    throw error;
+  }
+};

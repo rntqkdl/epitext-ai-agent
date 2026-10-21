@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import ListPage from "./pages/ListPage";
 import UploadPopup from "./pages/UploadPopup";
 import DetailPage from "./pages/DetailPage";
+import AgentReviewPage from "./pages/AgentReviewPage";
 import Sidebar from "./components/Sidebar";
 import { completeRubbings, uploadRubbing } from "./api/requests";
 
@@ -58,6 +59,8 @@ function App() {
       <Sidebar activeMenu={activeMenu} setActiveMenu={handleMenuChange} />
       {selectedItem ? (
         <DetailPage item={selectedItem} onBack={() => setSelectedItem(null)} />
+      ) : activeMenu === "에이전트 검수함" ? (
+        <AgentReviewPage />
       ) : (
         <>
           <ListPage

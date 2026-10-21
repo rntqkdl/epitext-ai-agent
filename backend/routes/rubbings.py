@@ -103,20 +103,20 @@ def combine_mlm_and_swin(mlm_results, swin_results):
                     'rank_nlp': mlm_top20.index(mlm_pred) + 1 if mlm_pred in mlm_top20 else None
                 })
         
-        # 3. Swin만 있는 후보들 제거 (NLP가 20개를 뽑았으므로 Swin Only는 필요 없음)
-        # 교집합이 없을 때는 NLP Only만 사용하므로, DB에도 Swin Only를 저장하지 않음
-        # for char, swin_pred in swin_chars.items():
-        #     if char not in intersection_chars:
-        #         stroke_match = swin_pred.get('probability', 0) * 100
-        #         candidates.append({
-        #             'character': char,
-        #             'stroke_match': stroke_match,
-        #             'context_match': None,
-        #             'reliability': stroke_match,  # 획 일치도가 전체 신뢰도
-        #             'model_type': 'vision',
-        #             'rank_vision': swin_top20.index(swin_pred) + 1 if swin_pred in swin_top20 else None,
-        #             'rank_nlp': None
-        #         })
+        # 3. [EpiText-Agent 개선] 교집합 부재 시 고유명사/희귀자 누락 방지를 위해 고신뢰 Swin 후보 보존
+        for char, swin_pred in swin_chars.items():
+            if char not in intersection_chars:
+                stroke_match = swin_pred.get('probability', 0) * 100
+                if not intersection_chars or stroke_match >= 75.0:
+                    candidates.append({
+                        'character': char,
+                        'stroke_match': stroke_match,
+                        'context_match': None,
+                        'reliability': stroke_match,
+                        'model_type': 'vision',
+                        'rank_vision': swin_top20.index(swin_pred) + 1 if swin_pred in swin_top20 else None,
+                        'rank_nlp': None
+                    })
         
         # 신뢰도 기준으로 정렬
         candidates.sort(key=lambda x: x['reliability'], reverse=True)

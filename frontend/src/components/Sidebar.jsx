@@ -64,6 +64,17 @@ const Sidebar = ({ activeMenu, setActiveMenu }) => {
                 <span className="text-[14px] leading-[16px]">복원 완료</span>
               </div>
               <div className="px-6 pb-[8px] pt-[12px]">
+                <span className="text-[12px] font-semibold text-[#a18e7c]">AI 에이전트</span>
+              </div>
+              <div
+                className={`pl-8 pr-0 py-[12px] cursor-pointer transition-colors ${
+                  activeMenu === "에이전트 검수함" ? "border-r-2 border-[#ee7542] text-[#ee7542] font-medium" : "text-[#2a2a3a] font-medium"
+                }`}
+                onClick={() => setActiveMenu("에이전트 검수함")}
+              >
+                <span className="text-[14px] leading-[16px]">에이전트 검수함</span>
+              </div>
+              <div className="px-6 pb-[8px] pt-[12px]">
                 <span className="text-[12px] font-semibold text-[#a18e7c]">탁본 데이터</span>
               </div>
               <div className="pl-8 pr-0 py-[12px] cursor-pointer transition-colors">

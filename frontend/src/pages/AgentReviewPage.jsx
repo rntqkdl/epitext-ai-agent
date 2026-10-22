@@ -383,7 +383,7 @@ const AgentReviewPage = () => {
 
   return (
     <div className="flex-1 overflow-auto" style={{ backgroundColor: COLORS.lightGray }}>
-      <div className="p-10 min-h-screen" style={{ backgroundColor: COLORS.lightGray }}>
+      <div className="p-6 lg:p-8 min-h-screen" style={{ backgroundColor: COLORS.lightGray }}>
         {/* 상단 헤더 */}
         <div className="flex items-end justify-between mb-6">
           <div>

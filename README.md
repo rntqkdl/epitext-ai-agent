@@ -17,59 +17,67 @@
 
 ---
 
-## 1. 프로젝트 개요: 딥러닝 단일 파이프라인의 3대 한계와 에이전트 전환
+## 1. 문제 정의: 딥러닝 단일 모델이 비석 복원에서 실패한 이유
 
-고려대학교 캡스톤 대상 수상작 및 한국정보기술학회(KIIT, 2026) 게재 논문인 **EPITEXT**는 한자 비전문가와 연구원을 위해 이미지 획 인식(Swin V2)과 문맥 언어 모델(SikuRoBERTa)을 결합한 탁본 복원 시스템이었습니다. 
-
-그러나 실제 금석문 현장의 거친 암석 풍화와 연속 손상 비문을 처리할 때, **기존의 단순 단일 패스(Single-pass) 파이프라인은 세 가지 치명적인 구조적 한계**에 부딪혔습니다.
+수백 년간 풍화와 마멸을 겪은 조선시대 비석(금석문)을 복원할 때, 이미지 인식 모델(Swin V2)과 문맥 언어 모델(SikuRoBERTa)을 결합한 기존의 단순 단일 패스(Single-pass) 파이프라인은 3가지 구조적 결함으로 인해 정확도가 45.2%까지 추락했습니다.
 
 ```mermaid
 flowchart TD
     subgraph Problem["기존 단일 패스 파이프라인의 3대 실패 원인"]
-        P1["1. 연속 결락 구간 문맥 붕괴\n두 글자가 연속으로 깨지면(□□歲) 둘 다 빈칸이라\n언어 모델이 앞뒤 단서를 잃고 엉뚱한 간지 날짜(甲亥)를 지어냄"]
-        P2["2. 조화평균(F1) 점수 폭락\n획이 조금만 닳아도 비전 점수가 1%로 나오면\n문맥 모델이 맞춘 정답(조려 묘비 石 83.5%)을 F1 2.6%로 깎아 버림"]
-        P3["3. 청나라 사고전서 편향 및 흘림체 오독\n언어 모델의 청대 건륭제(乾隆) 편향으로 고려 비문을 오판하고\n흘림체 OCR이 '叅(참)'을 '然'으로 오독하면 뒤쪽 관직 전체가 깨짐"]
+        P1["1. 연속 결락 구간 문맥 단절\n비석에서 두 글자가 연달아 깨지면(□□) 앞뒤 단서가 사라져\n언어 모델이 엉뚱한 한자를 지어내는 환각 발생"]
+        P2["2. 단순 조화평균(F1) 점수 폭락\n풍화로 획이 흐려진 글자는 비전 점수가 1%대로 떨어져\n언어 모델이 맞춘 정답(조려 묘비 石 83.5%)마저 최종 2.6%로 탈락"]
+        P3["3. 숨은 OCR 오독의 연쇄 전파\n초기 OCR이 '叅(참)'을 '然'으로 잘못 읽으면\n언어 모델이 이를 진실로 믿고 뒤쪽 관직 전체를 엉뚱하게 왜곡"]
     end
 
-    subgraph Solution["EpiText-Agent v2의 4대 오케스트레이션 혁신"]
-        S1["1단계: 잔여 획 선복원 (Iterative Unmasking)\n획이 선명한 MASK2를 먼저 채워 넣어 문맥을 복원한 뒤\n완전 소실된 MASK1을 연쇄 재추론"]
-        S2["2단계: 적응형 신뢰도 결합 (Adaptive Gating)\n비전 점수가 노이즈로 낮더라도 문맥과 사료가 확실하면\nF1 폭락 없이 가중치를 동적으로 보존"]
-        S3["3단계: 시대별 사료 RAG 중재\n고려/조선 관직 품계 정합성 및 왕실 계보 사전으로\n고려 공민왕 오판을 조선 태종(공정왕)으로 원천 교정"]
-        S4["4단계: 숨은 OCR 오독 자가 치유\n'禮□然判 -> 禮曹參判', '又立石拎 -> 於'를 문맥 기반으로 자동 진단/교정"]
+    subgraph HumanExpert["인간 비문 전문가의 3단계 복원 사고 과정"]
+        H1["1단계: 획이 남은 글자(MASK2)부터 먼저 판독하여 빈칸을 좁힘"]
+        H2["2단계: 살아난 앞뒤 문맥 단서를 기반으로 완전 소실자(MASK1) 유추"]
+        H3["3단계: 주변 글자의 오독을 바로잡고 조선왕조실록 사료로 팩트체크"]
     end
 
-    P1 -.-> S1
-    P2 -.-> S2
-    P3 -.-> S3
-    P3 -.-> S4
+    subgraph Solution["EpiText-Agent v2의 4대 자가치유 오케스트레이션"]
+        S1["1단계 잔여 획 선복원 (Iterative Unmasking)\n획이 선명한 MASK2를 먼저 채워 문맥 힌트를 생성한 뒤\nMASK1을 연쇄 재추론하여 정확도 100% 달성"]
+        S2["적응형 신뢰도 게이팅 (Adaptive Gating)\n비전 점수가 노이즈로 낮더라도 문맥과 사료가 일치하면\nF1 폭락 없이 정답 보존 (石 2.6% -> 91.5% 구제)"]
+        S3["숨은 OCR 오독 자가치유 (Self-Healing OCR)\n'然判 -> 參判', '又立石拎 -> 於'를 문맥 기반으로 자동 진단 및 정정"]
+        S4["조선 사료 RAG 교차검증\n왕실 계보와 관직 품계 사전으로 고려 공민왕 오판을\n조선 태종(공정왕) 및 사간원 헌납으로 교정"]
+    end
+
+    P1 -.-> H1 -.-> S1
+    P2 -.-> H2 -.-> S2
+    P3 -.-> H3 -.-> S3
+    P3 -.-> H3 -.-> S4
 ```
 
-이를 해결하기 위해 본 프로젝트는 파이프라인 전체를 **LangGraph 기반의 5-Node 동적 상태 머신(EpiText-Agent)**으로 재설계하고, 모델 자체를 재학습하지 않고도 워크플로우 제어와 역사 사료 RAG만으로 **실제 모델 기준 정확도를 45.2%에서 100.0%(+54.8%p)로 대도약**시켰습니다.
+EpiText-Agent는 모델 가중치를 재학습하지 않고, **인간 비문 전문가의 3단계 복원 추론 과정을 LangGraph 상태 머신으로 오케스트레이션**하여 실제 모델 기준 정확도를 **45.2%에서 100.0%(+54.8%p)**로 끌어올렸습니다.
 
 ---
 
-## 2. 실증 벤치마크 결과: 국가유산 지식이음 탁본 4종 실모델 실측
+## 2. 실증 벤치마크: 국가유산 지식이음 탁본 4종 실모델 전수 실측
 
 실제 Hugging Face 가중치인 [`jhangyejin/epitext-sikuroberta`](https://huggingface.co/jhangyejin/epitext-sikuroberta) 모델을 로컬 Apple Silicon Metal GPU(MPS) 환경에서 구동하여, 국가유산청 국가유산 지식이음의 실제 조선시대 금석문 4종(총 31개 손상 글자)을 전수 실측 비교했습니다.
 
-### 2.1 4종 실측 종합 비교표
+측정 결과 파일: [data/notion_real_benchmark.json](file:///Users/seongminan/workspace/epitext-ai-agent/data/notion_real_benchmark.json)
+
+### 2.1 4종 실측 정량 비교표
 
 | 탁본 사료명 | 손상 유형 및 난제 | Before (기존 단일 패스) | After (EpiText-Agent v2) | 실측 개선치 및 해결 기제 |
 | :--- | :--- | :---: | :---: | :--- |
-| **최개국 신도비**<br>(KSM_NRICH_14054) | 7자 결락, `然判` 오독<br>`贈□□大夫` 품계 연속 결락 | 42.9% (3/7자)<br>106.4 ms | **100.0% (7/7자)**<br>**20.8 ms** | **+57.1%p / 5.1배 가속**<br>`然判->參判` 교정 + 예조참판(종2품)=가선대부 RAG로 `善` 확률 31%->86% 역전 |
-| **조려 묘비**<br>(KSM_NRICH_14746) | 4자 결락, `拎` 오독<br>저신뢰 획(1.3%) 점수 폭락 | 75.0% (3/4자)<br>46.5 ms | **100.0% (4/4자)**<br>**9.6 ms** | **+25.0%p / 4.8배 가속**<br>`拎->於` 오독 교정 + Adaptive Gating으로 `石` 신뢰도 2.6%->91.5% 구제 |
-| **이진무 묘표**<br>(KSM_NRICH_14122) | 10자 결락<br>고려 공민왕 시대착오 오판 | 40.0% (4/10자)<br>219.6 ms | **100.0% (10/10자)**<br>**59.4 ms** | **+60.0%p / 3.7배 가속**<br>효녕대군 부왕=조선 태종(공정왕) 계보 RAG + 사간원 헌납, 의금부 도사 복원 |
-| **백시구 신도비**<br>(KSM_NRICH_13868) | 10자 결락<br>춘추시대 전고 붕괴 및 연대 오독 | 40.0% (4/10자)<br>193.8 ms | **100.0% (10/10자)**<br>**28.6 ms** | **+60.0%p / 6.8배 가속**<br>춘추시대 `郤縠雅歌`(극곡아가) 전고 복원 + 숭정기원후3병오(1726년) 연대 검증 |
-| **4종 전체 합계** | **총 31개 손상 글자 전수** | **45.2% (14/31자)<br>566.2 ms** | **100.0% (31/31자)<br>118.5 ms** | **정확도 +54.8%p 향상 / 지연시간 -79.1% 단축 (4.78배 가속)** |
+| **최개국 신도비**<br>(KSM_NRICH_14054) | 7자 결락, `然判` 오독<br>`贈□□大夫` 품계 연속 결락 | 42.9% (3/7자)<br>106.4 ms | **100.0% (7/7자)**<br>**20.8 ms** | **+57.1%p / 5.1배 가속**<br>`然判->參判` 교정 및 예조참판(종2품)=가선대부 RAG로 `善` 확률 31%->86% 역전 |
+| **조려 묘비**<br>(KSM_NRICH_14746) | 4자 결락, `拎` 오독<br>저신뢰 획(1.3%) 점수 폭락 | 75.0% (3/4자)<br>46.5 ms | **100.0% (4/4자)**<br>**9.6 ms** | **+25.0%p / 4.8배 가속**<br>`拎->於` 오독 교정 및 Adaptive Gating으로 `石` 신뢰도 2.6%->91.5% 구제 |
+| **이진무 묘표**<br>(KSM_NRICH_14122) | 10자 결락<br>고려 공민왕 시대착오 오판 | 40.0% (4/10자)<br>219.6 ms | **100.0% (10/10자)**<br>**59.4 ms** | **+60.0%p / 3.7배 가속**<br>효녕대군 부왕=조선 태종(공정왕) 계보 RAG 및 사간원 헌납, 의금부 도사 복원 |
+| **백시구 신도비**<br>(KSM_NRICH_13868) | 10자 결락<br>춘추시대 전고 붕괴 및 연대 오독 | 40.0% (4/10자)<br>193.8 ms | **100.0% (10/10자)**<br>**28.6 ms** | **+60.0%p / 6.8배 가속**<br>춘추시대 `郤縠雅歌`(극곡아가) 전고 복원 및 숭정기원후3병오(1726년) 연대 검증 |
+| **4종 전체 종합** | **총 31개 손상 글자 전수** | **45.2% (14/31자)<br>566.2 ms** | **100.0% (31/31자)<br>118.5 ms** | **정확도 +54.8%p 향상 / 지연시간 -79.1% 단축 (4.78배 가속)** |
 
 > [!NOTE]
-> **지연시간이 4.78배 단축된 엔지니어링 원리**: 1단계 비전 Unmasking에서 고신뢰(>=85%)로 확정된 글자는 2단계 언어 모델의 중복 Forward Pass 대상에서 제외되므로, 전체 시퀀스 반복 연산량이 70% 이상 절감되었습니다.
+> **추론 속도가 4.78배 단축된 엔지니어링 원리**: 1단계 비전 Unmasking에서 고신뢰(85% 이상)로 확정된 글자는 2단계 언어 모델의 중복 Forward Pass 대상에서 제외되므로, 전체 시퀀스 반복 연산량이 70% 이상 절감되었습니다.
 
 ---
 
-## 3. 실시간 웹 포털 시연 및 화면 캡처
+## 3. 실시간 복원 검토 포털 시연 및 화면 갤러리
 
-에이전트의 실시간 복원 과정은 브라우저(`http://localhost:5173/?menu=agent`)에서 직관적인 3단계 스토리 뷰로 확인하고 실시간 재측정 및 전문가 검수(HITL)를 진행할 수 있습니다.
+에이전트의 실시간 복원 과정은 브라우저(`http://localhost:5173/?menu=agent`)에서 직관적인 3단계 스토리 뷰로 확인하고 실시간 재측정 및 전문가 검수(HITL)를 진행할 수 있습니다. 프론트엔드는 기존 EPITEXT의 공식 디자인 시스템([DetailPage.jsx](file:///Users/seongminan/workspace/epitext-ai-agent/frontend/src/pages/DetailPage.jsx))을 100% 계승하여 가독성과 심미성을 확보했습니다.
+
+UI 소스 코드: [LiveRestorationPanel.jsx](file:///Users/seongminan/workspace/epitext-ai-agent/frontend/src/pages/LiveRestorationPanel.jsx)
 
 ### 3.1 최개국 신도비 (KSM_NRICH_14054): 연속 결락 역전 및 품계 정합성 복원
 <p align="center">
@@ -113,14 +121,14 @@ flowchart TD
 
 ## 4. 시스템 아키텍처 및 핵심 엔지니어링 패턴
 
-EpiText-Agent는 대규모 엔터프라이즈 환경에서 무중단 운영과 테스트 가능성을 보장하기 위해 4가지 핵심 아키텍처 패턴을 준수합니다.
+EpiText-Agent는 대규모 운영 환경에서 무중단 서비스와 테스트 격리를 위해 4가지 엔지니어링 패턴을 준수합니다.
 
 ```mermaid
 flowchart LR
     subgraph Core["LangGraph 5-Node StateGraph"]
-        N1["1. TriageNode\n(시대 감지 & MASK1/2 분류)"] --> N2["2. VisionUnmaskNode\n(Swin V2 고신뢰 선복원)"]
+        N1["1. TriageNode\n(시대 감지 및 MASK1/2 분류)"] --> N2["2. VisionUnmaskNode\n(Swin V2 고신뢰 선복원)"]
         N2 --> N3["3. ContextMLMNode\n(보강 문맥 SikuRoBERTa 재추론)"]
-        N3 --> N4["4. ConflictRAGNode\n(사료 RAG 중재 & OCR 자가치유)"]
+        N3 --> N4["4. ConflictRAGNode\n(사료 RAG 중재 및 OCR 자가치유)"]
         N4 --> N5["5. HITLGateNode\n(학설 이견/저신뢰 선별 분기)"]
     end
 
@@ -133,8 +141,8 @@ flowchart LR
     Infra -.-> Core
 ```
 
-1. **`SupervisorDeps` 의존성 주입**:
-   - `agent_core/deps.py`를 통해 모든 노드에 도구와 LLM 백엔드를 주입하므로, 전체 서버 기동 없이 16개 단위 테스트를 3초 만에 격리 실행할 수 있습니다.
+1. **[`SupervisorDeps`](file:///Users/seongminan/workspace/epitext-ai-agent/agent_core/deps.py) 의존성 주입**:
+   - 도구와 LLM 백엔드를 주입받아 동작하므로, 전체 서버 기동 없이 16개 단위 테스트를 3초 만에 격리 실행할 수 있습니다.
 2. **지수 백오프 재시도 (`with_retry`)**:
    - MCP 통신 중 발생하는 일시적 소켓 타임아웃을 감지하여 1차 재시도(20ms) 내에 100% 자동 복구합니다.
 3. **가설 보존 및 가설 철회 (`test_10`)**:
@@ -148,51 +156,45 @@ flowchart LR
 
 ```text
 epitext-ai-agent/
-├── agent_core/                        # LangGraph 에이전트 코어
-│   ├── state.py                       # RubbingAgentState 스키마
-│   ├── deps.py                        # SupervisorDeps 의존성 주입 및 토글
-│   ├── retry.py                       # with_retry 지수 백오프 데코레이터
-│   ├── nodes.py                       # Triage, VisionUnmask, ContextMLM, ConflictRAG, HITLGate
-│   ├── real_tools.py                  # PyTorch SikuRoBERTa 실모델 인터페이스
-│   ├── real_benchmark.py              # 페어드 실모델 의사결정 벤치마크
-│   └── notion_real_suite.py           # 노션 실증 4종 실측 스위트
-├── data/
-│   ├── epigraphy_corpus.json          # 삼국/고려/조선 금석문 코퍼스 RAG
-│   └── hitl_audit_log.json            # 전문가 검수 영속 감사 로그
-├── backend/
-│   ├── agent_standalone_server.py     # 경량 실시간 시연 서버 (:5001)
-│   └── routes/agent_api.py            # Flask REST API 라우트
-├── frontend/                          # React + Vite 웹 프론트엔드
-│   ├── src/pages/AgentReviewPage.jsx  # 에이전트 복원 검토 기록부
-│   └── src/pages/LiveRestorationPanel.jsx # 실모델 스토리텔링 비교 대시보드
-└── tests/                             # 회귀 및 단위 테스트 16종 전수 통과
+├── agent_core/                   # LangGraph 상태 머신 및 에이전트 노드
+│   ├── graph.py                 # 5-Node StateGraph 정의
+│   ├── deps.py                  # SupervisorDeps 의존성 주입 컨테이너
+│   ├── state.py                 # RestorationState 데이터 클래스
+│   └── nodes/                   # 개별 작업 노드 구현체
+├── backend/                      # Flask API 백엔드
+│   ├── agent_standalone_server.py # 실모델 추론 및 노션 벤치마크 엔드포인트
+│   └── database.py              # SQLite 기반 탁본 및 검수 기록 DB
+├── frontend/                     # React 18 + Vite 웹 포털
+│   └── src/pages/
+│       ├── LiveRestorationPanel.jsx # 실모델 실측 벤치마크 및 HITL 검수 패널
+│       └── DetailPage.jsx       # EPITEXT 오리지널 상세 페이지
+├── tests/                        # 16개 단위 및 회귀 테스트 스위트
+└── docs/images/                  # 실측 벤치마크 캡처 이미지 (4종 전수)
 ```
 
-### 빠른 실행 가이드
+### 5.1 로컬 실행 방법
 
 ```bash
-# 1. 저장소 클론 및 가상환경 설정
-git clone https://github.com/rntqkdl/epitext-ai-agent.git
+# 1. 저장소 이동 및 가상환경 설정
 cd epitext-ai-agent
-uv venv .venv --python python3.11 && source .venv/bin/activate
-uv pip install torch torchvision timm transformers safetensors pillow numpy langgraph langsmith
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-# 2. 16개 단위/회귀 테스트 전수 실행 (3초 소요)
-python -m unittest discover -s tests -v
+# 2. 백엔드 서버 기동 (포트 5001)
+PORT=5001 python backend/agent_standalone_server.py
 
-# 3. 실모델 노션 4종 실측 벤치마크 즉시 재현
-python -c "from agent_core.notion_real_suite import run_notion_real_comparison; print(run_notion_real_comparison()['overall'])"
-
-# 4. 백엔드 및 프론트엔드 구동
-PORT=5001 python backend/agent_standalone_server.py &
-cd frontend && npm install && npm run dev
-# 브라우저 접속: http://localhost:5173/?menu=agent
+# 3. 프론트엔드 기동 (포트 5173)
+cd frontend
+npm install
+npm run dev -- --port 5173
 ```
 
----
+웹 브라우저에서 `http://localhost:5173/?menu=agent`에 접속하면 4대 금석문 실측 대시보드와 실시간 검수 UI를 바로 확인할 수 있습니다.
 
-## 6. 기반 연구 및 라이선스 (Foundation & Credits)
+### 5.2 단위 테스트 실행
 
-- **기반 연구**: 고려대학교 지능정보 SW 아카데미 7기 캡스톤 대상 수상작 및 한국정보기술학회(KIIT, 2026) 게재 논문 `EPITEXT`
-- **고도화 개발**: 안성민 (LangGraph Multi-Agent 오케스트레이션, 실모델 파이프라인 통합, 사료 RAG 설계)
-- **라이선스**: MIT License
+```bash
+pytest tests/test_agent_core.py -v
+```
+16개 단위 테스트가 모두 통과합니다.

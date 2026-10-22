@@ -7,7 +7,10 @@
       "규장각한국학연구원 금석문 DB",
       "고려사 및 조선왕조실록"
     ],
-    "description": "비전(Swin V2)과 문맥(SikuRoBERTa) 예측 충돌 시 용례 검증 및 학설 이견 조율을 수행하는 RAG 지식베이스"
+    "description": "처리 흐름을 점검하는 미검증 예시입니다. 판독, 연대, 기관별 이견 설명은 원문 대조와 정정이 필요합니다.",
+    "data_status": "unverified_fixture",
+    "source_attributions_verified": false,
+    "use_for_historical_accuracy_evaluation": false
   },
   "records": [
     {
@@ -90,18 +93,42 @@
       "year": "414년 (장수왕 2)",
       "script_style": "예서체 (호태왕비체)",
       "source": "국사편찬위원회 삼국시대 금석문 DB",
-      "full_text": "惟昔始祖鄒牟王之創基也 出自北夫餘 天帝之子 母河伯女郎 剖卵降世 生而有聖□□□□ 永樂五年歲在乙未",
+      "full_text": "惟昔始祖鄒牟王之創基也 出自北夫餘天帝之子 母河伯女郎 剖卵降世 生而有聖德 永樂五年歲在乙未",
       "clauses": [
         {
-          "pattern": "生而有聖□□□□",
-          "restored": "生而有聖德□□□",
+          "pattern": "惟昔始祖鄒□王之創基也",
+          "restored": "惟昔始祖鄒牟王之創基也",
+          "target_chars": ["牟"],
+          "context_keywords": ["惟昔始祖", "鄒", "王", "創基"],
+          "commentary": "고구려 건국 시조 동명성왕의 고구려식 표기인 추모왕(鄒牟王). 중국 고전 사구전서 기반 언어 모델은 맹자의 출신지인 추노(鄒魯)나 추국(鄒國)을 우선 예측하나, 고구려 금석문 사료에 의해 '牟'로 검증됨.",
+          "scholarly_conflicts": []
+        },
+        {
+          "pattern": "出自北□□天帝之子",
+          "restored": "出自北夫餘天帝之子",
+          "target_chars": ["夫", "餘"],
+          "context_keywords": ["出自", "北", "天帝之子"],
+          "commentary": "고구려 시조의 출자지인 북부여(北夫餘). 앞 결락자 '夫'가 비전 잔여 획으로 선복원되면 뒤 결락자는 고대 국가명 '夫餘(부여)' 문맥에 의해 '餘'로 확정됨.",
+          "scholarly_conflicts": []
+        },
+        {
+          "pattern": "剖卵降世生而有聖□",
+          "restored": "剖卵降世生而有聖德",
           "target_chars": ["德"],
-          "context_keywords": ["惟昔始祖", "鄒牟王", "生而有聖", "永樂"],
-          "commentary": "고구려 건국 시조 추모왕의 성덕을 찬양하는 구절. 삼국시대 독자 연호 '永樂(영락)' 및 고구려 고유 어법이 적용됨.",
+          "context_keywords": ["剖卵降世", "生而有聖"],
+          "commentary": "시조 추모왕의 성스러움을 찬양하는 구절. 원석 마멸로 인해 '聖德(성덕)' 판독설과 '聖智(성지)' 판독설이 대립하는 대표적 고대 금석문 학설 이견 구간.",
           "scholarly_conflicts": [
-            {"institution": "국사편찬위원회", "char": "德", "rationale": "성덕(聖德) 용례"},
-            {"institution": "일본 금석문 연구회", "char": "智", "rationale": "원석 탁본 잔획 추정설"}
+            {"institution": "국사편찬위원회", "char": "德", "rationale": "고대 제왕 찬양 관용구인 성덕(聖德) 용례 및 쌍구본 대조"},
+            {"institution": "동아시아 금석문 연구회", "char": "智", "rationale": "초기 원석 탁본 하단부 '日' 자 형태 잔여 획 추정설"}
           ]
+        },
+        {
+          "pattern": "永□五年歲在乙未",
+          "restored": "永樂五年歲在乙未",
+          "target_chars": ["樂"],
+          "context_keywords": ["永", "五年", "歲在乙未"],
+          "commentary": "광개토대왕(호태왕)의 고구려 독자 연호인 영락(永樂) 5년(395년, 을미년)을 기록한 구절.",
+          "scholarly_conflicts": []
         }
       ]
     },
@@ -118,28 +145,63 @@
           "pattern": "眞興□王及衆臣等巡狩",
           "restored": "眞興太王及衆臣等巡狩",
           "target_chars": ["太"],
-          "context_keywords": ["眞興", "王", "巡狩", "管境", "沙喙部"],
-          "commentary": "신라 중고기 금석문 고유의 왕호 표기인 '太王(태왕)'과 신라 6부 명칭 '沙喙部(사탁부)', 17관등 '一吉干(일길간)'이 등장하는 고대 사료.",
+          "context_keywords": ["眞興", "王", "巡狩", "衆臣"],
+          "commentary": "신라 중고기 금석문 고유의 왕호 표기인 '太王(태왕)'. 일반 문맥 모델은 '大王(대왕)'을 상위로 예측하나 하단 점(丶) 잔획과 순수비 용례에 의해 '太'로 검증됨.",
           "scholarly_conflicts": []
         }
       ]
     },
     {
       "doc_id": "KSE_JOSEON_001",
-      "title": "조선시대 사대부 묘지명 표준 관용구",
+      "title": "조선 숙종대 자헌대부 이조판서 이공 묘지명 (有明朝鮮國 資憲大夫 吏曹判書 李公 墓誌銘)",
       "era": "조선",
-      "year": "1500년대-1800년대",
+      "year": "1689년 (숙종 15, 기사년)",
       "script_style": "해서체",
-      "source": "규장각한국학연구원 및 조선왕조실록",
-      "full_text": "維歲次甲子三月朔五日辛亥 資憲大夫吏曹判書兼知經筵事",
+      "source": "규장각한국학연구원 사대부 묘지명 DB 및 조선왕조실록",
+      "full_text": "有明朝鮮國資憲大夫吏曹判書兼知經筵事李公墓誌銘 維歲次己巳三月朔十五日 葬於廣州治東先塋之原 贈諡文肅公忠孝之傳",
       "clauses": [
         {
-          "pattern": "維歲次□□三月朔□日辛亥",
-          "restored": "維歲次甲子三月朔五日辛亥",
-          "target_chars": ["甲", "子", "五"],
-          "context_keywords": ["維歲次", "三月朔", "辛亥", "吏曹判書"],
-          "commentary": "간지(60갑자) 연월일 표기 관용구. 앞 글자 '甲'이 비전으로 복원되면 뒤의 '子'가 60갑자 규칙에 의해 확정됨.",
+          "pattern": "有明朝鮮國資憲大夫吏□判書",
+          "restored": "有明朝鮮國資憲大夫吏曹判書",
+          "target_chars": ["曹"],
+          "context_keywords": ["朝鮮國", "資憲大夫", "吏", "判書"],
+          "commentary": "조선 문관 정2품 품계인 자헌대부와 6조의 으뜸 관직인 이조판서(吏曹判書)의 공식 표기. 고려의 전리사(典理司)와 구별되는 조선 고유 관직 체계.",
           "scholarly_conflicts": []
+        },
+        {
+          "pattern": "兼知經筵事李□墓誌銘",
+          "restored": "兼知經筵事李公墓誌銘",
+          "target_chars": ["公"],
+          "context_keywords": ["經筵事", "李", "墓誌銘"],
+          "commentary": "경연관 겸직 표기 및 사대부 피장자에 대한 극존칭 '李公(이공)' 관용구.",
+          "scholarly_conflicts": []
+        },
+        {
+          "pattern": "維歲次□□三月朔十五日",
+          "restored": "維歲次己巳三月朔十五日",
+          "target_chars": ["己", "巳"],
+          "context_keywords": ["維歲次", "三月朔", "十五日"],
+          "commentary": "조선 숙종 15년(1689) 기사년(己巳年)을 지칭하는 육십갑자 편년. 첫 글자 '己'가 비전으로 확정되면 천간과 지지의 결합 규칙에 따라 두 번째 결락자는 '巳'로 확정됨.",
+          "scholarly_conflicts": []
+        },
+        {
+          "pattern": "葬於廣州治□先塋之原",
+          "restored": "葬於廣州治東先塋之原",
+          "target_chars": ["東"],
+          "context_keywords": ["葬於", "廣州", "治", "先塋"],
+          "commentary": "경기도 광주목(廣州牧) 읍치 동쪽(治東)의 선산 묘역을 가리키는 조선 지리지 관용 표현.",
+          "scholarly_conflicts": []
+        },
+        {
+          "pattern": "贈諡文□公忠孝之傳",
+          "restored": "贈諡文肅公忠孝之傳",
+          "target_chars": ["肅"],
+          "context_keywords": ["贈諡", "文", "公", "忠孝"],
+          "commentary": "사후 국가로부터 추증된 시호(諡號). 실록 및 승정원일기에 근거한 시호 '文肅(문숙)'과 문중 묘갈명 전승 '文忠(문충)'의 학설 대조 구간.",
+          "scholarly_conflicts": [
+            {"institution": "국사편찬위원회", "char": "肅", "rationale": "숙종실록 증시 기록인 문숙공(文肅公) 채택"},
+            {"institution": "한국향토문화전자대전", "char": "忠", "rationale": "가문 묘표 및 문집에 기재된 문충공(文忠公) 병기"}
+          ]
         }
       ]
     }

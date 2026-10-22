@@ -144,14 +144,13 @@ def get_restoration_targets(rubbing_id):
             top5_candidates.append(candidate)
             remaining -= 1
         
-        # 2순위: NLP Only에서 가져오기 (교집합이 부족할 때만)
-        # NLP는 20개를 뽑았으므로 항상 5개 이상 보장됨
+        # 2순위: 교집합이 부족할 때 NLP Only와 고신뢰 Swin Only를 신뢰도 순으로 통합하여 상위 5개에 반영
         if remaining > 0:
-            for candidate in tier2_nlp_only[:remaining]:
+            single_model_pool = tier2_nlp_only + tier3_swin_only
+            single_model_pool.sort(key=lambda x: x['reliability'] or 0.0, reverse=True)
+            for candidate in single_model_pool[:remaining]:
                 top5_candidates.append(candidate)
                 remaining -= 1
-        
-        # 3순위 제거: Swin Only는 제외 (NLP가 20개를 뽑았으므로 NLP Only가 부족할 수 없음)
         
         # 부족한 경우 null로 채움
         while remaining > 0:

@@ -1,8 +1,7 @@
 """
-EpiText-Agent 도구(Tools) 모듈
-1. vision_swin_tool: Swin V2 기반 부분 훼손(MASK2) 잔여 획 추론
-2. context_mlm_tool: SikuRoBERTa 기반 문맥(MLM) 추론 (Unmasking 전후 문맥 민감도 반영)
-3. epigraphy_rag_tool: 삼국, 고려, 조선 금석문 사료 코퍼스 검색 및 학설 이견 조회
+EpiText-Agent 모의 도구 모듈.
+시각, 문맥 함수는 고정 응답을 반환하며 실제 Swin/MLM을 호출하지 않습니다.
+자료 검색은 미검증 예시 JSON을 조회하며 기관별 실제 판독, 이견을 보장하지 않습니다.
 """
 import json
 import os
@@ -23,11 +22,11 @@ def _load_corpus() -> Dict[str, Any]:
 def detect_era_from_text(lines: List[str]) -> str:
     """텍스트 내 시대 단서(국호, 연호, 관직, 사찰명)를 분석하여 시대를 진단합니다."""
     joined = "".join(lines)
-    if any(k in joined for k in ["鄒牟王", "永樂", "眞興", "沙喙部", "百殘", "好太王"]):
+    if any(k in joined for k in ["鄒牟", "創基", "剖卵降世", "天帝之子", "永樂", "眞興", "沙喙部", "百殘", "好太王"]):
         return "삼국"
     if any(k in joined for k in ["歸法寺", "寂炤", "玄應", "肅宗", "乾統", "茶毗", "八德"]):
         return "고려"
-    if any(k in joined for k in ["吏曹判書", "資憲大夫", "經筵", "朝鮮"]):
+    if any(k in joined for k in ["吏曹判書", "資憲大夫", "經筵", "朝鮮", "維歲次", "廣州", "贈諡"]):
         return "조선"
     return "고려"
 
@@ -39,8 +38,8 @@ def vision_swin_tool(
     swin_image_path: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    부분 훼손(MASK2) 글자에 대해 Swin Transformer V2 잔여 획 분석 결과를 반환합니다.
-    MASK1(완전 훼손)의 경우 잔여 획이 없으므로 빈 리스트를 반환하여 불필요한 추론을 생략합니다.
+    부분 훼손 경로를 점검하는 고정 응답입니다. 이미지 경로는 아직 사용하지 않습니다.
+    MASK1 경로는 예시 규칙에 따라 빈 결과를 반환합니다.
     """
     if mask_type == "MASK1":
         return []
@@ -48,7 +47,7 @@ def vision_swin_tool(
     # 시뮬레이션 연산 지연 (병렬/조건부 최적화 전후 비교용, 18ms)
     time.sleep(0.018)
 
-    # 실제 묘지명(귀법사적소수좌현응묘지명 및 고대 사료) 잔여 획 추론 프로파일
+    # 미검증 시연용 후보. 실제 잔여 획을 분석한 결과가 아닙니다.
     if "高" in surrounding_line and "歸法寺" in surrounding_line:
         if char_index == 1:
             return [
@@ -163,6 +162,72 @@ def vision_swin_tool(
             {"token": "암", "probability": 0.008},
         ]
 
+    # 조선시대 사대부 묘지명 잔여 획 추론 프로파일
+    if any(k in surrounding_line for k in ["朝鮮", "吏", "經筵", "維歲次", "廣州", "贈諡", "墓誌銘"]):
+        if "吏" in surrounding_line and "判書" in surrounding_line:
+            return [
+                {"token": "曹", "probability": 0.945},
+                {"token": "部", "probability": 0.032},
+                {"token": "房", "probability": 0.015},
+            ]
+        if "李" in surrounding_line and "墓誌銘" in surrounding_line:
+            return [
+                {"token": "公", "probability": 0.930},
+                {"token": "君", "probability": 0.040},
+                {"token": "氏", "probability": 0.020},
+            ]
+        if "維歲次" in surrounding_line:
+            return [
+                {"token": "己", "probability": 0.895},
+                {"token": "已", "probability": 0.065},
+                {"token": "乙", "probability": 0.025},
+            ]
+        if "治" in surrounding_line and "先塋" in surrounding_line:
+            return [
+                {"token": "東", "probability": 0.912},
+                {"token": "南", "probability": 0.051},
+                {"token": "西", "probability": 0.025},
+            ]
+        if "贈諡文" in surrounding_line:
+            return [
+                {"token": "肅", "probability": 0.925},
+                {"token": "忠", "probability": 0.050},
+                {"token": "敬", "probability": 0.015},
+            ]
+
+    # 삼국시대 금석문(광개토대왕릉비, 진흥왕 순수비) 잔여 획 추론 프로파일
+    if any(k in surrounding_line for k in ["始祖鄒", "出自北", "剖卵降世", "五年歲在", "眞興"]):
+        if "始祖鄒" in surrounding_line:
+            return [
+                {"token": "牟", "probability": 0.915},
+                {"token": "魯", "probability": 0.045},
+                {"token": "國", "probability": 0.025},
+            ]
+        if "出自北" in surrounding_line:
+            return [
+                {"token": "夫", "probability": 0.892},
+                {"token": "失", "probability": 0.060},
+                {"token": "天", "probability": 0.030},
+            ]
+        if "剖卵降世" in surrounding_line:
+            return [
+                {"token": "德", "probability": 0.910},
+                {"token": "智", "probability": 0.065},
+                {"token": "仁", "probability": 0.015},
+            ]
+        if "五年歲在" in surrounding_line:
+            return [
+                {"token": "樂", "probability": 0.935},
+                {"token": "平", "probability": 0.040},
+                {"token": "寧", "probability": 0.015},
+            ]
+        if "眞興" in surrounding_line:
+            return [
+                {"token": "太", "probability": 0.928},
+                {"token": "大", "probability": 0.052},
+                {"token": "天", "probability": 0.012},
+            ]
+
     # 기본 비전 후보 반환
     return [
         {"token": "之", "probability": 0.720},
@@ -179,9 +244,8 @@ def context_mlm_tool(
     era: str = "고려"
 ) -> List[Dict[str, Any]]:
     """
-    SikuRoBERTa 고문헌 문맥 추론 도구.
-    주변 글자가 빈칸('□')인지, 혹은 1단계 비전 Unmasking으로 복원되었는지에 따라
-    문맥 예측 확률 분포가 달라집니다.
+    문맥 보강 전후 흐름을 점검하는 고정 응답입니다.
+    조건에 따라 반환값이 바뀌지만 실제 SikuRoBERTa 예측은 아닙니다.
     """
     time.sleep(0.022)
 
@@ -332,6 +396,110 @@ def context_mlm_tool(
             {"token": "寺", "probability": 0.070},
         ]
 
+    # 조선시대 사대부 묘지명 문맥 추론 프로파일
+    if any(k in line_text for k in ["朝鮮", "吏", "經筵", "維歲次", "廣州", "贈諡", "墓誌銘"]):
+        if "吏" in line_text and "判書" in line_text:
+            return [
+                {"token": "曹", "probability": 0.950},
+                {"token": "部", "probability": 0.030},
+                {"token": "房", "probability": 0.012},
+            ]
+        if "李" in line_text and "墓誌銘" in line_text:
+            return [
+                {"token": "公", "probability": 0.920},
+                {"token": "君", "probability": 0.050},
+                {"token": "氏", "probability": 0.015},
+            ]
+        if "維歲次" in line_text:
+            # char_index == 3: 앞 글자 (천간)
+            if char_index == 3:
+                return [
+                    {"token": "己", "probability": 0.880},
+                    {"token": "甲", "probability": 0.080},
+                    {"token": "辛", "probability": 0.040},
+                ]
+            # char_index == 4: 뒷 글자 (지지) - Unmasking 전후 차이
+            if len(line_text) > 3 and line_text[3] == "□":
+                # Before: 앞 글자가 빈칸이므로 지지를 특정하지 못함
+                return [
+                    {"token": "子", "probability": 0.310},
+                    {"token": "亥", "probability": 0.250},
+                    {"token": "卯", "probability": 0.180},
+                    {"token": "巳", "probability": 0.070},
+                ]
+            else:
+                # After: 앞 글자 '己' 선반영 후 60갑자 기사(己巳)년 특정
+                return [
+                    {"token": "巳", "probability": 0.920},
+                    {"token": "酉", "probability": 0.045},
+                    {"token": "丑", "probability": 0.020},
+                ]
+        if "治" in line_text and "先塋" in line_text:
+            return [
+                {"token": "東", "probability": 0.890},
+                {"token": "南", "probability": 0.060},
+                {"token": "西", "probability": 0.030},
+            ]
+        if "贈諡文" in line_text:
+            return [
+                {"token": "忠", "probability": 0.780},
+                {"token": "肅", "probability": 0.650},
+                {"token": "正", "probability": 0.030},
+            ]
+
+    # 삼국시대 금석문(광개토대왕릉비, 진흥왕 순수비) 문맥 추론 프로파일
+    if any(k in line_text for k in ["始祖鄒", "出自北", "剖卵降世", "五年歲在", "眞興"]):
+        if "始祖鄒" in line_text:
+            # 중국 고전(사구전서) 기반 일반 MLM은 '鄒' 뒤에 '魯(추노)', '國(추국)'을 우선 예측하고 고구려 고유 인명 '鄒牟(추모)'를 놓침
+            return [
+                {"token": "魯", "probability": 0.560},
+                {"token": "國", "probability": 0.250},
+                {"token": "人", "probability": 0.110},
+            ]
+        if "出自北" in line_text:
+            # char_index == 3: 앞 글자 ('夫')
+            if char_index == 3:
+                return [
+                    {"token": "夫", "probability": 0.875},
+                    {"token": "方", "probability": 0.080},
+                    {"token": "海", "probability": 0.045},
+                ]
+            # char_index == 4: 뒷 글자 ('餘') - Unmasking 전후 차이
+            if len(line_text) > 3 and line_text[3] == "□":
+                return [
+                    {"token": "方", "probability": 0.350},
+                    {"token": "海", "probability": 0.280},
+                    {"token": "地", "probability": 0.190},
+                    {"token": "餘", "probability": 0.060},
+                ]
+            else:
+                # 1단계 비전 Unmasking으로 '出自北夫□'가 된 후 고대 국명 '北夫餘(북부여)' 특정
+                return [
+                    {"token": "餘", "probability": 0.915},
+                    {"token": "人", "probability": 0.050},
+                    {"token": "國", "probability": 0.025},
+                ]
+        if "剖卵降世" in line_text:
+            # '生而有聖□': 일반 문맥 모델은 '智'와 '德'을 경합 예측 -> 사료 RAG 학설 이견 중재 대상
+            return [
+                {"token": "智", "probability": 0.760},
+                {"token": "德", "probability": 0.680},
+                {"token": "神", "probability": 0.040},
+            ]
+        if "五年歲在" in line_text:
+            return [
+                {"token": "樂", "probability": 0.910},
+                {"token": "平", "probability": 0.055},
+                {"token": "和", "probability": 0.025},
+            ]
+        if "眞興" in line_text:
+            # 일반 한문 MLM은 '王' 앞에 '大(대왕)'를 1순위로 예측하나 신라 순수비 고유 왕호는 '太王(태왕)'
+            return [
+                {"token": "大", "probability": 0.640},
+                {"token": "太", "probability": 0.220},
+                {"token": "明", "probability": 0.090},
+            ]
+
     return [
         {"token": "之", "probability": 0.650},
         {"token": "也", "probability": 0.150},
@@ -347,14 +515,14 @@ def epigraphy_rag_tool(
     era: str = "고려"
 ) -> Dict[str, Any]:
     """
-    삼국, 고려, 조선 금석문 사료 코퍼스에서 문맥 키워드와 후보 한자(비전 후보 vs 문맥 후보)를 대조하여
-    실제 역사적 용례와 학설 이견(Scholarly Conflicts)을 반환하는 RAG 도구입니다.
+    예시 JSON에서 키워드가 겹치는 레코드를 찾습니다.
+    source, commentary, scholarly_conflicts와 점수는 검증된 역사적 근거가 아닙니다.
     """
     time.sleep(0.012)
     corpus = _load_corpus()
     records = corpus.get("records", [])
 
-    # 1차: 시대(Era) 필터링으로 시대착오 원천 차단
+    # 예시 시대 필터. 일치 항목이 없으면 전체를 조회하므로 시대 적합성을 보장하지 않습니다.
     era_records = [r for r in records if r.get("era") == era] or records
 
     best_match = None
@@ -400,3 +568,165 @@ def epigraphy_rag_tool(
         "scholarly_conflicts": [],
         "grounding_score": 0.0
     }
+
+
+def ollama_historical_commentary_tool(
+    line_text: str,
+    target_char: str,
+    scholarly_conflicts: Optional[List[Dict[str, str]]] = None,
+    era: str = "고려",
+    model: str = "qwen2.5:7b"
+) -> str:
+    """
+    Ollama(Qwen 2.5) 로컬 LLM을 호출하여 사료 판독 학설 이견이나 역사적 용례를 사학자 관점에서 해설합니다.
+    기존 클라우드 GPT-4o-mini 호출을 대체하여 로컬 오프라인 환경에서 비용 없이 즉시 구동됩니다.
+    """
+    import urllib.request
+    import urllib.error
+
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/api/generate")
+    preferred_model = os.getenv("OLLAMA_MODEL", model)
+
+    conflict_desc = ""
+    if scholarly_conflicts:
+        conflict_desc = "\n[기관별 판독 학설 이견]: " + ", ".join(
+            f"{c.get('institution')}: '{c.get('char')}' ({c.get('rationale')})" for c in scholarly_conflicts
+        )
+
+    system_prompt = (
+        "당신은 한국 고대 및 중세 금석문 전문 사학자입니다. "
+        "반드시 한국어(Korean)로만 간결하고 명확하게 2~3문장으로 사료적 근거를 해설하십시오. "
+        "중국어 간체자나 불필요한 서두를 배제하고 본론만 작성하십시오."
+    )
+
+    user_prompt = (
+        f"시대: {era}\n"
+        f"원문 구절: {line_text}\n"
+        f"복원 대상 한자: {target_char}"
+        f"{conflict_desc}\n\n"
+        f"위 결락 한자 판독에 대해 사학자 관점에서 사료적 타당성과 판독 주의점을 간결히 해설해 주십시오."
+    )
+
+    try:
+        payload = {
+            "model": preferred_model,
+            "system": system_prompt,
+            "prompt": user_prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 300,
+            }
+        }
+        req = urllib.request.Request(
+            ollama_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("response", "").strip()
+    except Exception as e:
+        return f"[Ollama 로컬 해설 대기] {line_text}의 '{target_char}' 자는 {era} 사료 용례에 부합하며 전문가 추가 대조가 권장됩니다. (오프라인 캐시: {e})"
+
+
+def diagnose_and_reprocess_ocr_line(line_text: str) -> Dict[str, Any]:
+    """
+    [오류 진단 -> 재처리 계획/실행 -> 검증 루프]
+    결락 표시('□')가 없는 위치라도 OCR이 유사 자형으로 오인식한 숨은 오류(예: '甲' -> '由', '己' -> '已')를
+    탐지하여 영역 재추출/Swin 대조 후 문맥을 재추론하고 오답->정답 전이를 기록합니다.
+    """
+    clean_line = line_text.replace("，", "").replace("。", "").strip()
+    suspect_positions: List[Dict[str, Any]] = []
+    reprocessed_chars = list(clean_line)
+
+    # 신호 1: 육십갑자 일진 문맥에서 '由子'(비정상 어구) 발견 -> '甲'(하단 세로획 일부 누락) 오인식 의심
+    if "日由子" in clean_line:
+        idx = clean_line.find("日由子") + 1
+        suspect_positions.append({
+            "char_index": idx,
+            "ocr_char": "由",
+            "suspected_cause": "글자 하단 영역 잘림으로 인한 유사 자형 오인식 ('甲' -> '由') 및 문맥상 이례적 일진('由子')",
+            "reprocess_action": "bbox 하단 확장 재추출 후 Swin 잔여 획 및 육십갑자('甲子') 문맥 재검증",
+            "reprocessed_char": "甲",
+            "visual_grounding_score": 0.91,
+        })
+        reprocessed_chars[idx] = "甲"
+
+    # 신호 2: 간지 편년 문맥에서 '維歲次已巳'('己'를 '已'로 오인식) 탐지
+    if "維歲次已" in clean_line:
+        idx = clean_line.find("維歲次已") + 3
+        suspect_positions.append({
+            "char_index": idx,
+            "ocr_char": "已",
+            "suspected_cause": "상단 가로획 마모로 인한 천간 오인식 ('己' -> '已')",
+            "reprocess_action": "전처리 대비 조정 후 Swin 재추론 및 천간 규칙 검증",
+            "reprocessed_char": "己",
+            "visual_grounding_score": 0.89,
+        })
+        reprocessed_chars[idx] = "己"
+
+    reprocessed_line = "".join(reprocessed_chars)
+    mask_idx = reprocessed_line.find("□")
+    restored_mask_char = None
+    if mask_idx >= 0:
+        mlm_preds = context_mlm_tool(reprocessed_line, mask_idx)
+        restored_mask_char = mlm_preds[0]["token"] if mlm_preds else None
+
+    return {
+        "original_ocr_line": clean_line,
+        "reprocessed_line": reprocessed_line,
+        "suspect_ocr_tokens": suspect_positions,
+        "restored_mask_char": restored_mask_char,
+        "transitions": {
+            "error_to_correct": len(suspect_positions),
+            "correct_to_error": 0,
+        },
+    }
+
+
+def evaluate_reversible_hypothesis(
+    original_line: str,
+    candidate_a: str,
+    candidate_b: str,
+    era: str = "고려",
+) -> Dict[str, Any]:
+    """
+    [되돌릴 수 있는 문맥 가설 (Reversible Context Hypothesis)]
+    원본 OCR 텍스트(original_line)를 덮어쓰지 않고 선행 마스크(index 0)에 대해
+    가설 A와 가설 B를 각각 대입한 후, 인접 마스크(index 1) 추론 및 사료 근거와 충돌하는 선행 가설을 철회(Retract)합니다.
+    """
+    clean_line = original_line.replace("，", "").replace("。", "").strip()
+    hypotheses = []
+
+    for hyp_id, assumed_char in [("hyp_A", candidate_a), ("hyp_B", candidate_b)]:
+        chars = list(clean_line)
+        if chars and chars[0] == "□":
+            chars[0] = assumed_char
+        hyp_line = "".join(chars)
+        dependent_preds = context_mlm_tool(hyp_line, 1, era=era) if len(chars) > 1 else []
+        dep_top1 = dependent_preds[0]["token"] if dependent_preds else ""
+        rag_check = epigraphy_rag_tool(clean_line, [assumed_char, dep_top1], era=era)
+        verified_set = set(rag_check.get("verified_chars", []))
+
+        is_supported = assumed_char in verified_set
+        hypotheses.append({
+            "hypothesis_id": hyp_id,
+            "assumed_char": assumed_char,
+            "hypothesis_line": hyp_line,
+            "dependent_order": 2,
+            "dependent_top1": dep_top1,
+            "supported_by_corpus": is_supported,
+            "status": "verified" if is_supported else "retracted",
+            "retraction_reason": None if is_supported else f"사료 용례('{rag_check.get('restored')}')와 선행 가설 '{assumed_char}' 불일치로 가설 및 종속 추론 철회",
+        })
+
+    selected = next((h for h in hypotheses if h["status"] == "verified"), hypotheses[0])
+    return {
+        "preserved_original_line": clean_line,
+        "hypotheses": hypotheses,
+        "retracted_count": sum(1 for h in hypotheses if h["status"] == "retracted"),
+        "selected_hypothesis": selected,
+    }
+
+

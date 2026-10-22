@@ -37,20 +37,22 @@ def combine_mlm_and_swin(mlm_results, swin_results):
     """
     combined = {}
     
-    # Swin 결과를 order별로 인덱싱
+    # MLM 및 Swin 결과를 order별로 인덱싱 후 합집합(Union) 순회
+    mlm_by_order = {}
+    for item in mlm_results.get('results', []):
+        order = item.get('order', -1)
+        if order >= 0:
+            mlm_by_order[order] = item.get('top_20', [])
+
     swin_by_order = {}
     for item in swin_results.get('results', []):
         order = item.get('order', -1)
         if order >= 0:
             swin_by_order[order] = item.get('top_20', [])
     
-    # MLM 결과를 order별로 처리
-    for mlm_item in mlm_results.get('results', []):
-        order = mlm_item.get('order', -1)
-        if order < 0:
-            continue
-        
-        mlm_top20 = mlm_item.get('top_20', [])
+    all_orders = sorted(set(mlm_by_order.keys()) | set(swin_by_order.keys()))
+    for order in all_orders:
+        mlm_top20 = mlm_by_order.get(order, [])
         swin_top20 = swin_by_order.get(order, [])
         
         # MLM top-1과 Swin top-1 추출

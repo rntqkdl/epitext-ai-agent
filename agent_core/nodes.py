@@ -1,19 +1,31 @@
 """
-EpiText-Agent LangGraph 노드(Nodes) 모듈
+EpiText-Agent 모의 도구 기반 LangGraph 노드 (SKALA Wave 2, 13, LangSmith @traceable 적용).
+실제 모델 및 사료 검증은 별도 연결 대상입니다.
 1. triage_node: 손상 유형(MASK1/MASK2) 및 시대 진단, 실행 경로 분기
 2. vision_unmask_node: MASK2 비전 추론 및 고신뢰(>=0.85) 글자 선행 문맥 반영(Unmasking)
 3. context_mlm_node: 보강된 문맥(unmasked_line) 기반 SikuRoBERTa MLM 추론
-4. conflict_rag_arbitration_node: 비전-문맥 충돌 및 교집합 부재 시 사료 RAG 호출 및 후보 구제
+4. conflict_rag_arbitration_node: 비전-문맥 충돌 및 교집합 부재 시 사료 RAG(MCP Tool) 호출 및 후보 구제
 5. hitl_gate_node: 저신뢰 및 학설 이견(Scholarly Conflict) 항목 HITL 검수 큐 분류
 """
 import time
-from typing import Dict, Any, List
+from typing import Dict, List, Optional, Any
+
+try:
+    from langsmith import traceable
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
 from .state import RubbingAgentState, MaskTargetState
+from .deps import SupervisorDeps
 from .tools import (
     detect_era_from_text,
     vision_swin_tool,
     context_mlm_tool,
     epigraphy_rag_tool,
+    ollama_historical_commentary_tool,
 )
 
 
@@ -23,7 +35,8 @@ def _calc_f1(score_a: float, score_b: float) -> float:
     return round((2.0 * score_a * score_b) / (score_a + score_b), 1)
 
 
-def triage_node(state: RubbingAgentState) -> RubbingAgentState:
+@traceable(run_type="chain", name="epitext.triage_node")
+def triage_node(state: RubbingAgentState, deps: Optional[SupervisorDeps] = None) -> RubbingAgentState:
     """
     1단계: 입력 텍스트에서 손상 글자('□')를 스캔하고 시대 및 손상 유형을 분류합니다.
     """
@@ -40,7 +53,6 @@ def triage_node(state: RubbingAgentState) -> RubbingAgentState:
         for c_idx, ch in enumerate(clean_line):
             if ch == "□":
                 # 연속 손상('□□')에서 첫 글자는 잔여 획이 남은 MASK2, 뒷글자는 완전 소실된 MASK1으로 분류
-                # 그 외 단일 손상은 홀짝/위치 기준 부분 훼손(MASK2)과 완전 훼손(MASK1) 구성
                 if "□□" in clean_line and c_idx == clean_line.find("□□") + 1:
                     m_type = "MASK1"
                 elif c_idx == 0 and "日甲子" in clean_line:
@@ -94,12 +106,14 @@ def triage_node(state: RubbingAgentState) -> RubbingAgentState:
     return state
 
 
-def vision_unmask_node(state: RubbingAgentState) -> RubbingAgentState:
+@traceable(run_type="chain", name="epitext.vision_unmask_node")
+def vision_unmask_node(state: RubbingAgentState, deps: Optional[SupervisorDeps] = None) -> RubbingAgentState:
     """
     2단계: 부분 훼손(MASK2) 글자에 대해서만 Swin V2 잔여 획 도구를 우선 호출하고,
     신뢰도 >= 0.85인 글자를 행 문맥에 먼저 채워 넣습니다(Iterative Unmasking).
     """
     t0 = time.perf_counter()
+    vision_fn = deps.vision_fn if deps else vision_swin_tool
     targets = state["targets"]
     unmasked_lines_by_row: Dict[int, List[str]] = {}
 
@@ -113,7 +127,7 @@ def vision_unmask_node(state: RubbingAgentState) -> RubbingAgentState:
     for t in targets:
         if t["mask_type"] == "MASK2":
             swin_calls += 1
-            preds = vision_swin_tool(
+            preds = vision_fn(
                 surrounding_line=t["surrounding_line"],
                 char_index=t["char_index"],
                 mask_type=t["mask_type"],
@@ -149,26 +163,26 @@ def vision_unmask_node(state: RubbingAgentState) -> RubbingAgentState:
     return state
 
 
-def context_mlm_node(state: RubbingAgentState) -> RubbingAgentState:
+@traceable(run_type="chain", name="epitext.context_mlm_node")
+def context_mlm_node(state: RubbingAgentState, deps: Optional[SupervisorDeps] = None) -> RubbingAgentState:
     """
     3단계: 1단계 Unmasking으로 앞뒤 빈칸이 채워진 문맥(unmasked_line)을 바탕으로
     SikuRoBERTa 문맥 추론 도구를 호출합니다.
     """
     t0 = time.perf_counter()
+    mlm_fn = deps.mlm_fn if deps else context_mlm_tool
     era = state.get("inferred_era", "고려")
     mlm_calls = 0
 
     for t in state["targets"]:
         mlm_calls += 1
-        # After: Unmasking 반영 문맥 추론
-        refined_preds = context_mlm_tool(
+        refined_preds = mlm_fn(
             line_text=t["unmasked_line"],
             char_index=t["char_index"],
             era=era,
         )
         t["mlm_refined_top_k"] = refined_preds
 
-        # 연속 손상 구간에서 Unmasking 효과 로그 기록
         if t["surrounding_line"] != t["unmasked_line"]:
             state["agent_logs"].append(
                 f"  -> [Unmasking 효과] {t['position']}: 원본 '{t['surrounding_line']}' 대신 보강 문맥 '{t['unmasked_line']}' 입력 -> MLM 1순위 '{refined_preds[0]['token']}'({refined_preds[0]['probability']*100:.1f}%)"
@@ -180,14 +194,15 @@ def context_mlm_node(state: RubbingAgentState) -> RubbingAgentState:
     return state
 
 
-def conflict_rag_arbitration_node(state: RubbingAgentState) -> RubbingAgentState:
+@traceable(run_type="chain", name="epitext.conflict_rag_arbitration_node")
+def conflict_rag_arbitration_node(state: RubbingAgentState, deps: Optional[SupervisorDeps] = None) -> RubbingAgentState:
     """
-    4단계: 기존 combine_mlm_and_swin()의 치명적 한계(교집합 부재 시 Swin 결과 폐기)를 해결합니다.
-    - 비전 Top-1과 문맥 Top-1이 일치하면 조화평균(F1)으로 즉시 결합.
-    - 불일치하거나 교집합이 없으면 사료 RAG 도구(epigraphy_rag_tool)를 호출하여
-      실제 금석문 코퍼스에 용례가 존재하는 한자를 검증 및 구제합니다.
+    4단계: 비전 Top-1과 문맥 Top-1이 불일치하거나 교집합이 없을 때
+    MCP 기반 사료 RAG 도구(rag_fn)를 호출하여 실제 금석문 용례를 대조하고 후보를 구제합니다.
     """
     t0 = time.perf_counter()
+    rag_fn = deps.rag_fn if deps else epigraphy_rag_tool
+    commentary_fn = deps.commentary_fn if deps else ollama_historical_commentary_tool
     era = state.get("inferred_era", "고려")
     rag_calls = 0
     rag_rescued = 0
@@ -205,24 +220,31 @@ def conflict_rag_arbitration_node(state: RubbingAgentState) -> RubbingAgentState
         m_top1 = m_preds[0]["token"] if m_preds else None
         intersection = set(v_map.keys()) & set(m_map.keys())
 
-        # 충돌 조건: MASK2인데 교집합이 없거나, 비전 1순위와 문맥 1순위가 서로 다른 경우
         if t["mask_type"] == "MASK2" and (not intersection or v_top1 != m_top1):
             t["conflict_detected"] = True
             rag_calls += 1
             candidate_pool = list(dict.fromkeys([c for c in [v_top1, m_top1] if c]))
-            rag_res = epigraphy_rag_tool(
+            rag_res: Dict[str, Any] = rag_fn(
                 surrounding_line=t["surrounding_line"],
                 candidate_chars=candidate_pool,
                 era=era,
             )
             t["rag_evidence"] = rag_res
 
-            verified = set(rag_res.get(" target_chars", rag_res.get("target_chars", [])))
-            # 사료 학설 이견에 포함된 한자도 검증 후보군에 추가
-            for conf in rag_res.get("scholarly_conflicts", []):
+            verified = set(rag_res.get("target_chars", []))
+            conflicts = rag_res.get("scholarly_conflicts", [])
+            for conf in conflicts:
                 verified.add(conf.get("char"))
 
-            # 만약 비전 후보가 실제 금석문 사료에 존재하는데 문맥 모델이 놓치거나 과소평가(<80%)한 경우 -> 사료 문맥 점수로 구제!
+            if conflicts and state.get("enable_ollama_commentary", False) and "ollama_commentary" not in rag_res:
+                commentary_text = commentary_fn(
+                    line_text=t["surrounding_line"],
+                    target_char=v_top1 or (conflicts[0].get("char") if conflicts else ""),
+                    scholarly_conflicts=conflicts,
+                    era=era,
+                )
+                rag_res["ollama_commentary"] = commentary_text
+
             for ch in list(v_map.keys()):
                 if ch in verified and m_map.get(ch, 0.0) < 80.0 and v_map[ch] >= 75.0:
                     m_map[ch] = round(rag_res.get("grounding_score", 0.90) * 100, 1)
@@ -232,14 +254,12 @@ def conflict_rag_arbitration_node(state: RubbingAgentState) -> RubbingAgentState
                         f"  -> [RAG 구제 성공] {t['position']}: 비전 1순위 '{ch}'(획 {v_map[ch]}%)가 일반 MLM에서 누락/과소평가되었으나, 사료 '{rag_res.get('title')}' 용례 검증으로 구제됨"
                     )
 
-            # 사료의 학설 이견 한자가 후보군에 있으면 함께 보존
             for conf in rag_res.get("scholarly_conflicts", []):
                 c_char = conf.get("char")
                 if c_char and c_char not in m_map:
                     m_map[c_char] = 78.0
                     m_ranks[c_char] = 2
 
-        # 최종 후보 리스트 생성 (기존 DB Candidate 스키마 100% 호환)
         all_chars = set(v_map.keys()) | set(m_map.keys())
         candidates = []
         for ch in all_chars:
@@ -252,7 +272,6 @@ def conflict_rag_arbitration_node(state: RubbingAgentState) -> RubbingAgentState
                 rel = c_score
                 m_type = "nlp"
             else:
-                # 기존 코드는 Swin Only를 삭제했으나 에이전트는 보존
                 rel = round(s_score * 0.85, 1)
                 m_type = "vision"
 
@@ -279,7 +298,8 @@ def conflict_rag_arbitration_node(state: RubbingAgentState) -> RubbingAgentState
     return state
 
 
-def hitl_gate_node(state: RubbingAgentState) -> RubbingAgentState:
+@traceable(run_type="chain", name="epitext.hitl_gate_node")
+def hitl_gate_node(state: RubbingAgentState, deps: Optional[SupervisorDeps] = None) -> RubbingAgentState:
     """
     5단계: 신뢰도가 임계치(85.0%) 미만이거나, 사료 간 학설 이견(Scholarly Conflicts)이 존재하는 글자만
     전문가 검수(HITL) 대상으로 분류합니다.
@@ -301,13 +321,13 @@ def hitl_gate_node(state: RubbingAgentState) -> RubbingAgentState:
             pending_orders.append(t["order"])
         else:
             t["hitl_required"] = False
-            t["hitl_reason"] = "고신뢰 자동 확정 (비전+문맥+사료 일치)"
+            t["hitl_reason"] = "예시 점수 규칙상 검토 미분류 (최종 판독 아님)"
 
     state["hitl_pending_orders"] = pending_orders
     state["metrics"]["hitl_required_count"] = len(pending_orders)
     state["metrics"]["auto_confirmed_count"] = len(state["targets"]) - len(pending_orders)
 
     state["agent_logs"].append(
-        f"[HITLGateNode] 전체 {len(state['targets'])}개 복원 대상 중 {state['metrics']['auto_confirmed_count']}건 자동 확정, {len(pending_orders)}건 전문가 검수(HITL) 요청"
+        f"[HITLGateNode] 전체 {len(state['targets'])}개 복원 대상 중 {state['metrics']['auto_confirmed_count']}건 예시 규칙상 검토 미분류, {len(pending_orders)}건 전문가 검수(HITL) 요청"
     )
     return state

@@ -1,8 +1,8 @@
 """
 EpiText-Agent 전용 Flask API 라우트
-- GET  /api/agent/benchmark : 기존 파이프라인(Before) vs 에이전트(After) 실측 벤치마크 조회
+- GET  /api/agent/benchmark : 모의 워크플로우 비교 예시 조회
 - POST /api/agent/run       : 특정 탁본 또는 입력 텍스트에 대해 LangGraph 에이전트 복원 실행
-- POST /api/agent/hitl      : 전문가(HITL) 검수 승인 및 기록부(InspectionRecord) 반영
+- POST /api/agent/hitl/approve : 검수 기록 API 초안 (대상 ID·저장 실패 처리 보완 필요)
 """
 import os
 import sys
@@ -18,7 +18,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from agent_core import run_epitext_agent, run_before_after_benchmark
-from models import db, Rubbing, RubbingDetail, RestorationTarget, Candidate, InspectionRecord
+from models import db, Rubbing, RestorationTarget, Candidate, InspectionRecord
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,8 @@ agent_bp = Blueprint("agent_api", __name__)
 @agent_bp.route("/api/agent/benchmark", methods=["GET"])
 def get_agent_benchmark():
     """
-    기존 직렬 파이프라인(Before)과 EpiText-Agent(After)의 추론 시간, 정확도,
-    Unmasking 효과, 사료 RAG 구제 건수, HITL 검수 축소율을 실측 비교하여 반환합니다.
+    모의 도구·예시 기준값의 비교를 반환합니다.
+    실제 모델 정확도·추론 지연·검수 업무 감소의 측정 결과가 아닙니다.
     """
     try:
         result = run_before_after_benchmark()
@@ -78,10 +78,12 @@ def execute_agent_restoration():
             "乙酉□舍利□於八德□",
         ]
 
+    enable_ollama = bool(data.get("enable_ollama", False))
     state = run_epitext_agent(
         rubbing_id=rubbing_id,
         title=title,
         text_lines=text_lines,
+        enable_ollama_commentary=enable_ollama,
     )
 
     # DB가 초기화된 상태이고 해당 Rubbing이 존재하면 후보군 업데이트
@@ -114,6 +116,9 @@ def execute_agent_restoration():
 
     return jsonify({
         "success": True,
+        "execution_mode": "mock",
+        "model_inference_executed": False,
+        "result_status": "preview",
         "rubbing_id": rubbing_id,
         "inferred_era": state["inferred_era"],
         "triage_route": state["triage_route"],
@@ -129,8 +134,8 @@ def execute_agent_restoration():
 @agent_bp.route("/api/agent/hitl/approve", methods=["POST"])
 def approve_hitl_target():
     """
-    전문가(연구원)가 HITL 검수 대상 글자의 사료 근거를 확인하고 최종 한자를 승인하면
-    검수 기록부(InspectionRecord)에 반영합니다.
+    검수 기록 저장 API 초안입니다.
+    대상 ID 검증·저장 실패 응답·화면 재조회는 보완 대상입니다.
     """
     data = request.get_json(silent=True) or {}
     rubbing_id = data.get("rubbing_id", 1)

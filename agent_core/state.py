@@ -40,4 +40,5 @@ class RubbingAgentState(TypedDict):
     rag_rescued_count: int                      # 교집합 부재/충돌에서 사료 RAG로 구제된 글자 수
     hitl_pending_orders: List[int]              # 전문가 승인이 필요한 target order 목록
     agent_logs: List[str]                       # 단계별 에이전트 의사결정 추적 로그
+    enable_ollama_commentary: Optional[bool]    # 사료 학설 이견 시 Ollama(Qwen 2.5) 심층 해설 실행 여부
     metrics: Dict[str, Any]                     # 추론 시간(ms), 도구 호출 수, 정확도 비교 지표

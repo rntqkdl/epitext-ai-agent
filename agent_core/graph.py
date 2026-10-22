@@ -1,11 +1,26 @@
 """
-EpiText-Agent LangGraph StateGraph 조립 및 Before-After 실측 벤치마크 모듈
+EpiText-Agent LangGraph 조립 및 모의 워크플로우 비교 모듈 (SKALA Wave 1~15 아키텍처 패턴 통합).
+- functools.partial을 통한 SupervisorDeps 의존성 주입 (Wave 13)
+- SUPERVISOR_VERSION (v1 legacy / v2 agent) 무중단 버전 토글 (Wave 14)
+- LangSmith @traceable 계층 트리 추적 및 Retry 지표 계측 (Wave 9)
 """
+import os
 import time
+from functools import partial
 from typing import List, Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 
+try:
+    from langsmith import traceable
+except ImportError:
+    def traceable(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
 from .state import RubbingAgentState
+from .deps import SupervisorDeps, build_supervisor_deps
+from .retry import GLOBAL_RETRY_METRICS
 from .nodes import (
     triage_node,
     vision_unmask_node,
@@ -14,7 +29,7 @@ from .nodes import (
     hitl_gate_node,
     _calc_f1,
 )
-from .tools import vision_swin_tool, context_mlm_tool
+from .tools import detect_era_from_text, vision_swin_tool, context_mlm_tool
 
 
 def _route_after_triage(state: RubbingAgentState) -> str:
@@ -26,15 +41,16 @@ def _route_after_triage(state: RubbingAgentState) -> str:
     return "vision_unmask"
 
 
-def build_epitext_agent_graph():
-    """LangGraph StateGraph를 생성하고 컴파일합니다."""
+def build_epitext_agent_graph(deps: Optional[SupervisorDeps] = None):
+    """SupervisorDeps를 각 노드에 partial로 주입하여 LangGraph StateGraph를 컴파일합니다."""
+    active_deps = deps or build_supervisor_deps()
     workflow = StateGraph(RubbingAgentState)
 
-    workflow.add_node("triage", triage_node)
-    workflow.add_node("vision_unmask", vision_unmask_node)
-    workflow.add_node("context_mlm", context_mlm_node)
-    workflow.add_node("conflict_rag", conflict_rag_arbitration_node)
-    workflow.add_node("hitl_gate", hitl_gate_node)
+    workflow.add_node("triage", partial(triage_node, deps=active_deps))
+    workflow.add_node("vision_unmask", partial(vision_unmask_node, deps=active_deps))
+    workflow.add_node("context_mlm", partial(context_mlm_node, deps=active_deps))
+    workflow.add_node("conflict_rag", partial(conflict_rag_arbitration_node, deps=active_deps))
+    workflow.add_node("hitl_gate", partial(hitl_gate_node, deps=active_deps))
 
     workflow.set_entry_point("triage")
 
@@ -56,15 +72,52 @@ def build_epitext_agent_graph():
     return workflow.compile()
 
 
+@traceable(run_type="chain", name="epitext.run_epitext_agent")
 def run_epitext_agent(
     rubbing_id: int,
     title: str,
     text_lines: List[str],
-    swin_image_path: Optional[str] = None
+    swin_image_path: Optional[str] = None,
+    enable_ollama_commentary: bool = False,
+    deps: Optional[SupervisorDeps] = None,
 ) -> RubbingAgentState:
-    """EpiText-Agent StateGraph를 실행하고 최종 상태를 반환합니다."""
+    """
+    EpiText-Agent를 실행하고 최종 상태를 반환합니다.
+    SUPERVISOR_VERSION=v1 설정 시 재배포 없이 Legacy 선형 파이프라인(v1)으로 전환됩니다.
+    """
+    active_deps = deps or build_supervisor_deps()
+    version = active_deps.version or os.getenv("SUPERVISOR_VERSION", "v2")
+
+    if version.lower() == "v1":
+        legacy_res = run_legacy_pipeline(text_lines)
+        era = detect_era_from_text(text_lines)
+        return {
+            "rubbing_id": rubbing_id,
+            "title": title,
+            "inferred_era": era,
+            "text_lines": text_lines,
+            "swin_image_path": swin_image_path,
+            "ocr_results": [],
+            "targets": legacy_res["targets"],
+            "triage_route": "legacy_v1_linear",
+            "unmasked_count": 0,
+            "rag_rescued_count": 0,
+            "hitl_pending_orders": [t["order"] for t in legacy_res["targets"]],
+            "agent_logs": [
+                f"[SupervisorV1] SUPERVISOR_VERSION=v1 감지 -> Legacy 선형 파이프라인 실행 ({legacy_res['total_elapsed_ms']}ms)"
+            ],
+            "enable_ollama_commentary": False,
+            "metrics": {
+                "total_elapsed_ms": legacy_res["total_elapsed_ms"],
+                "supervisor_version": "v1",
+                "llm_backend": active_deps.llm_backend,
+                "hitl_required_count": len(legacy_res["targets"]),
+            },
+        }
+
     t_start = time.perf_counter()
-    app = build_epitext_agent_graph()
+    GLOBAL_RETRY_METRICS.reset()
+    app = build_epitext_agent_graph(deps=active_deps)
 
     initial_state: RubbingAgentState = {
         "rubbing_id": rubbing_id,
@@ -79,18 +132,23 @@ def run_epitext_agent(
         "rag_rescued_count": 0,
         "hitl_pending_orders": [],
         "agent_logs": [],
+        "enable_ollama_commentary": enable_ollama_commentary,
         "metrics": {},
     }
 
     final_state = app.invoke(initial_state)
     total_ms = round((time.perf_counter() - t_start) * 1000, 2)
     final_state["metrics"]["total_elapsed_ms"] = total_ms
+    final_state["metrics"]["supervisor_version"] = active_deps.version
+    final_state["metrics"]["llm_backend"] = active_deps.llm_backend
+    final_state["metrics"]["retry_stats"] = GLOBAL_RETRY_METRICS.to_dict()
     return final_state
 
 
+@traceable(run_type="chain", name="epitext.run_legacy_pipeline")
 def run_legacy_pipeline(text_lines: List[str]) -> Dict[str, Any]:
     """
-    [Before 비교용] 기존 backend/routes/rubbings.py의 직렬 파이프라인 동작을 그대로 재현합니다:
+    [모의 Before / Supervisor v1] 비교 흐름을 설명하는 단순화된 예시입니다:
     1. 모든 글자/행에 대해 무조건 직렬 블로킹 실행 (구두점 + MLM 1회 실행 -> Swin 전체 실행)
     2. Unmasking 없이 빈칸('□□') 그대로 MLM 추론
     3. combine_mlm_and_swin()에서 교집합이 없으면 Swin 결과를 폐기하고 NLP 결과만 채택
@@ -99,17 +157,14 @@ def run_legacy_pipeline(text_lines: List[str]) -> Dict[str, Any]:
     legacy_targets = []
     order_seq = 1
 
-    # 기존 파이프라인은 전체 글자(47자) 전수 구두점/직렬 대기 오버헤드 발생
     total_chars = sum(len(line.replace("，", "").replace("。", "").strip()) for line in text_lines)
-    time.sleep(total_chars * 0.008)  # 전수 직렬 스캔 오버헤드
+    time.sleep(total_chars * 0.008)
 
     for r_idx, line in enumerate(text_lines):
         clean_line = line.replace("，", "").replace("。", "").strip()
         for c_idx, ch in enumerate(clean_line):
             if ch == "□":
-                # 1. Unmasking 없는 원본 빈칸 상태로 MLM 1회 실행
                 mlm_preds = context_mlm_tool(clean_line, c_idx)
-                # 2. 구분 없이 직렬로 Swin 호출 대기
                 time.sleep(0.018)
                 swin_preds = vision_swin_tool(clean_line, c_idx, "MASK2")
 
@@ -118,7 +173,6 @@ def run_legacy_pipeline(text_lines: List[str]) -> Dict[str, Any]:
                 intersection = set(mlm_map.keys()) & set(swin_map.keys())
 
                 candidates = []
-                # 기존 rubbings.py L67-L105: 교집합 계산 후 NLP Only만 추가, Swin Only는 삭제!
                 for token in intersection:
                     rel = _calc_f1(swin_map[token], mlm_map[token])
                     candidates.append({"character": token, "reliability": rel, "model_type": "both"})
@@ -132,10 +186,17 @@ def run_legacy_pipeline(text_lines: List[str]) -> Dict[str, Any]:
 
                 legacy_targets.append({
                     "order": order_seq,
+                    "row_index": r_idx,
+                    "char_index": c_idx,
                     "position": f"{r_idx + 1}행 {c_idx + 1}자",
+                    "mask_type": "MASK2",
                     "surrounding_line": clean_line,
+                    "unmasked_line": clean_line,
+                    "final_candidates": candidates[:5],
                     "top1_char": top1_char,
                     "top1_reliability": top1_rel,
+                    "hitl_required": True,
+                    "hitl_reason": "Legacy v1 전수 수동 검수 대상",
                 })
                 order_seq += 1
 
@@ -143,14 +204,15 @@ def run_legacy_pipeline(text_lines: List[str]) -> Dict[str, Any]:
     return {
         "total_elapsed_ms": total_ms,
         "targets": legacy_targets,
-        "manual_review_count": len(legacy_targets),  # 기존에는 모든 마스크를 수동 검수해야 함
+        "manual_review_count": len(legacy_targets),
     }
 
 
+@traceable(run_type="chain", name="epitext.run_before_after_benchmark")
 def run_before_after_benchmark() -> Dict[str, Any]:
     """
-    실제 고려시대 묘지명 '귀법사적소수좌현응묘지명' (seed_data.py ID=1)의 12개 손상 글자를 대상으로
-    Before(기존 rubbings.py 직렬 파이프라인)와 After(EpiText-Agent)를 실측 비교합니다.
+    동일 입력(귀법사적소수좌현응묘지명 7행 47자, 결락 14자)에 대해
+    Legacy v1 파이프라인과 Agent v2 파이프라인을 실행하여 지연 시간, 정확도, Retry 복구, 비용을 비교합니다.
     """
     sample_lines = [
         "高□洛□歸法寺住持",
@@ -161,7 +223,6 @@ def run_before_after_benchmark() -> Dict[str, Any]:
         "壬申茶□以三月□五日",
         "乙酉□舍利□於八德□",
     ]
-    # 국사편찬위원회 한국금석문 종합영상정보시스템 공인 판독문 정답 (12개 훼손 위치 순서)
     ground_truth = [
         "麗",  # 1: 高[麗]
         "西",  # 2: 洛[西]歸法寺
@@ -180,10 +241,13 @@ def run_before_after_benchmark() -> Dict[str, Any]:
     ]
 
     before_res = run_legacy_pipeline(sample_lines)
+    # Wave 9 Retry 검증을 위해 최초 1회 MCP 일시적 타임아웃 시뮬레이션 활성화
+    bench_deps = build_supervisor_deps(version="v2", flaky_mcp=True)
     after_state = run_epitext_agent(
         rubbing_id=1,
         title="귀법사적소수좌현응묘지명",
         text_lines=sample_lines,
+        deps=bench_deps,
     )
 
     comparison_rows = []
@@ -224,8 +288,13 @@ def run_before_after_benchmark() -> Dict[str, Any]:
     before_ms = before_res["total_elapsed_ms"]
     after_ms = after_state["metrics"]["total_elapsed_ms"]
     speedup_pct = round(((before_ms - after_ms) / before_ms) * 100, 1) if before_ms > 0 else 0.0
+    retry_stats = after_state["metrics"].get("retry_stats", {"total_retries": 0, "recovered_calls": 0})
 
     return {
+        "execution_mode": "mock",
+        "model_inference_executed": False,
+        "performance_claims_validated": False,
+        "metric_interpretation": "Fixture comparison only; not historical accuracy or model latency.",
         "summary": {
             "total_damaged_chars": total_cnt,
             "before_accuracy_pct": before_acc,
@@ -241,6 +310,10 @@ def run_before_after_benchmark() -> Dict[str, Any]:
             "review_workload_reduction_pct": round(
                 ((total_cnt - len(after_state["hitl_pending_orders"])) / total_cnt) * 100, 1
             ),
+            "before_cloud_api_cost_usd": 0.015,
+            "after_local_ollama_cost_usd": 0.0,
+            "mcp_transient_retries": retry_stats.get("total_retries", 0),
+            "mcp_recovered_calls": retry_stats.get("recovered_calls", 0),
         },
         "character_comparisons": comparison_rows,
         "agent_logs": after_state["agent_logs"],

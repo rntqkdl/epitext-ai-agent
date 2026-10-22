@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-Gemini API 기반 한문 금석문 번역 엔진
+Ollama & Gemini 기반 한문 금석문 번역 및 사료 해설 엔진
 ================================================================================
-모듈명: translation_engine.py (v1.0.0 - Production Ready)
-작성일: 2025-12-04
-목적: Gemini API를 활용한 한문 금석문 번역
-상태: Production Ready
+모듈명: translation_engine.py (v2.0.0 - Ollama Local First)
+목적: 로컬 Ollama(Qwen 2.5) 기반 금석문 번역 및 클라우드 LLM Fallback
 ================================================================================
 """
 import os
 import json
 import logging
 import re
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -51,20 +51,22 @@ class TranslationEngine:
         """
         self.config = self._load_config(config_path)
         
-        # API 키 로드 (환경 변수)
-        # 번역 전용 API 키 사용 (GEMINI_TRANSLATION_API_KEY 우선, 없으면 GEMINI_API_KEY 사용)
+        # Ollama 설정 (로컬 우선)
+        models_cfg = self.config.get("models", {})
+        self.ollama_base_url = os.getenv("OLLAMA_BASE_URL") or models_cfg.get("ollama_base_url", "http://localhost:11434")
+        self.preferred_ollama_model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+        
+        # 클라우드 API 키 로드 (Fallback용)
         self.api_key = os.getenv("GEMINI_TRANSLATION_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
-            logger.warning("[TRANSLATION] GEMINI_TRANSLATION_API_KEY 또는 GEMINI_API_KEY가 설정되지 않았습니다.")
             self.client = None
         else:
             if not HAS_GEMINI:
-                logger.error("[TRANSLATION] google-genai 패키지가 설치되지 않았습니다.")
                 self.client = None
             else:
                 try:
                     self.client = genai.Client(api_key=self.api_key)
-                    logger.info("[TRANSLATION] Gemini Client 초기화 완료")
+                    logger.info("[TRANSLATION] Gemini Client 초기화 완료 (Fallback용)")
                 except Exception as e:
                     logger.error(f"[TRANSLATION] Client 초기화 실패: {e}")
                     self.client = None
@@ -76,10 +78,36 @@ class TranslationEngine:
         
         with open(config_path, 'r', encoding='utf-8') as f:
             return json.load(f)
+
+    def _call_ollama(self, model_name: str, user_prompt: str, system_prompt: str) -> Optional[str]:
+        """로컬 Ollama API 호출"""
+        try:
+            url = f"{self.ollama_base_url.rstrip('/')}/api/generate"
+            payload = {
+                "model": model_name,
+                "system": system_prompt,
+                "prompt": user_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.1,
+                    "num_predict": 600,
+                }
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=40) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data.get("response", "").strip()
+        except Exception as e:
+            logger.warning(f"[TRANSLATION] Ollama ({model_name}) 호출 실패: {e}")
+            return None
     
     def translate(self, text: str) -> Dict:
         """
-        한문 텍스트 번역 수행
+        한문 텍스트 번역 수행 (Ollama 로컬 우선 -> 클라우드 Gemini Fallback)
         
         Args:
             text: 번역할 한문 텍스트
@@ -94,9 +122,6 @@ class TranslationEngine:
                 'error': str (실패 시)
             }
         """
-        if not self.client:
-            return {"success": False, "error": "API Key Missing or Client Init Failed"}
-        
         if not text or not text.strip():
             return {"success": False, "error": "Empty input text"}
         
@@ -109,39 +134,48 @@ class TranslationEngine:
 
 <output>"""
         
-        model_candidates = self.config['models']['candidates']
-        gen_config = self.config['models']['generation_config']
+        model_candidates = self.config.get('models', {}).get('candidates', ["qwen2.5:7b", "qwen2.5:1.5b"])
+        gen_config = self.config.get('models', {}).get('generation_config', {})
         
-        # Fallback Logic
+        # 1. Ollama 로컬 모델 우선 시도
         for model_name in model_candidates:
-            try:
-                logger.info(f"[TRANSLATION] 시도 중: {model_name}")
-                
-                response = self.client.models.generate_content(
-                    model=model_name,
-                    contents=user_prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
-                        **gen_config
-                    )
-                )
-                
-                full_result = response.text.strip()
-                parsed = self._parse_full_result(full_result)
-                
-                if parsed:
-                    parsed['success'] = True
-                    parsed['model'] = model_name
-                    logger.info(f"[TRANSLATION] 번역 성공: {model_name}")
-                    return parsed
-                
-                logger.warning(f"[TRANSLATION] [{model_name}] 파싱 실패, 재시도...")
-                
-            except Exception as e:
-                logger.warning(f"[TRANSLATION] [{model_name}] 호출 실패: {e}")
-                continue
+            if "gemini" not in model_name.lower():
+                logger.info(f"[TRANSLATION] Ollama 모델 시도 중: {model_name}")
+                raw_response = self._call_ollama(model_name, user_prompt, SYSTEM_PROMPT)
+                if raw_response:
+                    parsed = self._parse_full_result(raw_response)
+                    if parsed and parsed.get("translation"):
+                        parsed['success'] = True
+                        parsed['model'] = f"ollama/{model_name}"
+                        logger.info(f"[TRANSLATION] Ollama 번역 성공: {model_name}")
+                        return parsed
+
+        # 2. 클라우드 Gemini API Fallback
+        if self.client:
+            for model_name in model_candidates:
+                if "gemini" in model_name.lower():
+                    try:
+                        logger.info(f"[TRANSLATION] Gemini Fallback 시도 중: {model_name}")
+                        response = self.client.models.generate_content(
+                            model=model_name,
+                            contents=user_prompt,
+                            config=types.GenerateContentConfig(
+                                system_instruction=SYSTEM_PROMPT,
+                                **gen_config
+                            )
+                        )
+                        full_result = response.text.strip()
+                        parsed = self._parse_full_result(full_result)
+                        if parsed:
+                            parsed['success'] = True
+                            parsed['model'] = model_name
+                            logger.info(f"[TRANSLATION] Gemini 번역 성공: {model_name}")
+                            return parsed
+                    except Exception as e:
+                        logger.warning(f"[TRANSLATION] Gemini ({model_name}) 실패: {e}")
+                        continue
         
-        return {"success": False, "error": "All models failed"}
+        return {"success": False, "error": "All translation engines (Ollama & Gemini) failed"}
     
     def _parse_full_result(self, text: str) -> Optional[Dict]:
         """

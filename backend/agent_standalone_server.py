@@ -26,8 +26,10 @@ from agent_core import (
 from agent_core.real_benchmark import run_paired_real_benchmark
 from agent_core.real_tools import RealModelUnavailable
 from agent_core.tools import vision_swin_tool
+from agent_core.notion_real_suite import run_notion_real_comparison
 
 AUDIT_LOG_PATH = ROOT_DIR / "data" / "hitl_audit_log.json"
+NOTION_BENCH_PATH = ROOT_DIR / "data" / "notion_real_benchmark.json"
 VALID_TARGET_IDS = set(range(1, 50))
 
 DEFAULT_LINES = [
@@ -117,6 +119,15 @@ class EpiTextAgentRequestHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/agent/hitl/records":
             self._send_json(200, {"success": True, "records": _load_audit_records()})
+            return
+
+        if parsed.path == "/api/agent/notion-benchmark":
+            if NOTION_BENCH_PATH.exists():
+                data = json.loads(NOTION_BENCH_PATH.read_text(encoding="utf-8"))
+            else:
+                data = run_notion_real_comparison()
+                NOTION_BENCH_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._send_json(200, {"success": True, "notion_benchmark": data})
             return
 
         self._send_json(404, {"success": False, "error": f"Not found: {parsed.path}"})
@@ -255,6 +266,12 @@ class EpiTextAgentRequestHandler(BaseHTTPRequestHandler):
             era = data.get("era", "고려")
             res = evaluate_reversible_hypothesis(line_text, cand_a, cand_b, era=era)
             self._send_json(200, {"success": True, "hypothesis_evaluation": res})
+            return
+
+        if parsed.path == "/api/agent/notion-benchmark/run":
+            res = run_notion_real_comparison()
+            NOTION_BENCH_PATH.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._send_json(200, {"success": True, "notion_benchmark": res})
             return
 
         self._send_json(404, {"success": False, "error": f"Unknown endpoint: {parsed.path}"})

@@ -1,0 +1,12 @@
+[
+  {
+    "id": 1,
+    "rubbing_id": 1,
+    "target_id": 2,
+    "selected_character": "西",
+    "reliability": 95.0,
+    "decision_type": "approved",
+    "reviewer_note": "사료 RAG 근거 확인 후 전문가 승인",
+    "approved_at": "2026-10-22T01:20:45.779101"
+  }
+]

@@ -8,7 +8,13 @@ import { completeRubbings, uploadRubbing } from "./api/requests";
 
 function App() {
   const [showUploadPopup, setShowUploadPopup] = useState(false);
-  const [activeMenu, setActiveMenu] = useState("전체 기록");
+  const [activeMenu, setActiveMenu] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("menu") === "agent" || window.location.pathname.includes("agent")) {
+      return "에이전트 검수함";
+    }
+    return "전체 기록";
+  });
   const [selectedItem, setSelectedItem] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0); // ListPage 새로고침을 위한 key
 

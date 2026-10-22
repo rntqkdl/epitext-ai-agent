@@ -1,6 +1,5 @@
 <div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=344D64&height=260&section=header&text=EpiText-Agent&fontSize=74&fontColor=ffffff&desc=LangGraph%20Multi-Modal%20Epigraphy%20Restoration%20%26%20RAG%20Verification%20System&descSize=18&descAlignY=68" width="100%" />
-
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=auto&height=340&section=header&text=EPITEXT&fontSize=90"/>>
   <p>
     <img src="https://img.shields.io/badge/Architecture-LangGraph_StateGraph-ee7542?style=for-the-badge" />
     <img src="https://img.shields.io/badge/Inference_Latency---52.9%25_(708ms)-344D64?style=for-the-badge" />

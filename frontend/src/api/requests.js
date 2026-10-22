@@ -379,3 +379,14 @@ export const runAgentRestoration = async (rubbingId) => {
   });
   return response.data;
 };
+
+/** Fetch or re-run Notion 4-rubbing real SikuRoBERTa benchmark suite. */
+export const getNotionBenchmark = async () => {
+  const response = await apiClient.get("/api/agent/notion-benchmark");
+  return response.data;
+};
+
+export const runNotionBenchmarkLive = async () => {
+  const response = await apiClient.post("/api/agent/notion-benchmark/run", {});
+  return response.data;
+};

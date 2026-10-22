@@ -23,7 +23,7 @@
 | 항목 | 기재 내용 |
 | :--- | :--- |
 | **과정명** | SKALA AI 서비스 개발 Mini-Project (2026) |
-| **성함 / 번호** | **안성민 (Seongmin An)** / 교육생 번호(UID): `[제출 시트 기재 번호]` |
+| **성함** | **안성민 (Seongmin An)** |
 | **선택 과제** | **과제 2 (신규 AI 서비스 개발)** — 훼손 금석문 단계적 문맥 복원 및 사료 교차검증 멀티모달 에이전트 |
 | **프로젝트명** | **EpiText-Agent**: LangGraph 상태 머신 기반 탁본 결락 복원 및 고증 오케스트레이션 |
 | **저장소 주소** | https://github.com/rntqkdl/epitext-ai-agent (Public) |

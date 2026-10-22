@@ -18,13 +18,13 @@
 
 ---
 
-## [제출자 정보]
+## 프로젝트 개요 및 연구자 정보
 
 | 항목 | 기재 내용 |
 | :--- | :--- |
 | **과정명** | SKALA AI 서비스 개발 Mini-Project (2026) |
 | **성함** | **안성민 (Seongmin An)** |
-| **선택 과제** | **과제 2 (신규 AI 서비스 개발)** — 훼손 금석문 단계적 문맥 복원 및 사료 교차검증 멀티모달 에이전트 |
+| **선택 과제** | 과제 2 (신규 AI 서비스 개발) — 훼손 금석문 단계적 문맥 복원 및 사료 교차검증 멀티모달 에이전트 |
 | **프로젝트명** | **EpiText-Agent**: LangGraph 상태 머신 기반 탁본 결락 복원 및 고증 오케스트레이션 |
 | **저장소 주소** | https://github.com/rntqkdl/epitext-ai-agent (Public) |
 
@@ -32,7 +32,7 @@
 
 ## 1. 진행 사항 소개
 
-### 1.1 과제 1: 추가하거나 수정한 Task 소개 (기존 파이프라인 버그 수정 및 인터페이스 안정화)
+### 1.1 기존 파이프라인 버그 수정 및 인터페이스 안정화 (과제 1 구현 Task)
 기존 EPITEXT 단일 파이프라인([backend/routes/rubbings.py](file:///Users/seongminan/workspace/epitext-ai-agent/backend/routes/rubbings.py), [backend/routes/targets.py](file:///Users/seongminan/workspace/epitext-ai-agent/backend/routes/targets.py))의 후보 결합 로직에 존재하던 구조적 결함을 수정했습니다:
 
 1. **교집합 부재 시 비전 후보 강제 폐기 버그 수정**:
@@ -45,7 +45,7 @@
 
 ---
 
-### 1.2 과제 2: 선정한 프로젝트 주제 및 주요 Task 소개 (EpiText-Agent)
+### 1.2 금석문 복원 에이전트 아키텍처 및 핵심 Task (과제 2: EpiText-Agent)
 - **프로젝트 주제**: 수백 년간 풍화와 마모로 인해 글자가 지워진 조선시대 및 삼국, 고려시대 금석문(비석, 묘표, 신도비) 탁본에서 결락 문자(`□`)를 복원하고, 동시대 역사 사료 코퍼스(조선왕조실록, 승정원일기, 관직 체계)와 교차 검증하는 **LangGraph 기반 멀티모달 AI 에이전트 서비스**입니다.
 - **해결하고자 한 핵심 문제 (Why Agent?)**:
   - **연속 결락(□□)의 문맥 단절**: 두 글자가 연달아 깨지면 언어 모델이 앞뒤 단서를 모두 잃고 엉뚱한 한자를 추론하는 문제.
@@ -196,7 +196,7 @@ flowchart TB
 
 ---
 
-## 4. [선택 항목 — Before / After 비교] (보너스 평가 항목: 최대 10점)
+## 4. 실증 벤치마크: Before vs After 정량 비교
 
 실제 Hugging Face 가중치인 [`jhangyejin/epitext-sikuroberta`](https://huggingface.co/jhangyejin/epitext-sikuroberta) 모델을 로컬 Apple Silicon Metal GPU(MPS) 환경에서 구동하여, 국가유산청 국가유산 지식이음의 실제 조선시대 금석문 4종(총 31개 손상 문자)을 동일 입력 조건에서 전수 실측 비교했습니다.
 

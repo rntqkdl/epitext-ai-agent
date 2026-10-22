@@ -370,3 +370,12 @@ export const approveAgentHitl = async (payload) => {
     throw error;
   }
 };
+
+/** Run actual SikuRoBERTa MLM using stored image-derived Swin predictions. */
+export const runAgentRestoration = async (rubbingId) => {
+  const response = await apiClient.post("/api/agent/run", {
+    rubbing_id: rubbingId,
+    inference_mode: "real",
+  });
+  return response.data;
+};

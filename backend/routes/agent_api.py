@@ -1,40 +1,49 @@
 """
-EpiText-Agent 전용 Flask API 라우트
-- GET  /api/agent/benchmark : 모의 워크플로우 비교 예시 조회
-- POST /api/agent/run       : 특정 탁본 또는 입력 텍스트에 대해 LangGraph 에이전트 복원 실행
-- POST /api/agent/hitl/approve : 검수 기록 API 초안 (대상 ID·저장 실패 처리 보완 필요)
+EpiText-Agent Flask API routes.
+- GET  /api/agent/benchmark      : deterministic fixture simulation (explicitly labeled)
+- POST /api/agent/benchmark/real : paired decision-stage benchmark using stored Swin + real MLM
+- POST /api/agent/run            : run LangGraph restoration in 'real' or 'fixture' mode
+- POST /api/agent/hitl/approve   : persist verified human approval for a real DB target
 """
 import os
 import sys
-import json
 import logging
 from datetime import datetime
 from decimal import Decimal
 from flask import Blueprint, request, jsonify
 
-# 최상위 루트의 agent_core 임포트 경로 확보
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from agent_core import run_epitext_agent, run_before_after_benchmark
+from agent_core.real_benchmark import run_paired_real_benchmark
+from agent_core.real_tools import RealModelUnavailable, normalized_lines, prepare_saved_predictions
 from models import db, Rubbing, RestorationTarget, Candidate, InspectionRecord
 
 logger = logging.getLogger(__name__)
-
 agent_bp = Blueprint("agent_api", __name__)
+
+SAMPLE_FIXTURE_LINES = [
+    "高□洛□歸法寺住持",
+    "見性寂炤首□玄應者",
+    "立□第十五□肅宗□子",
+    "□□歲下元己未二月十",
+    "□日甲子薨卒二十一日",
+    "壬申茶□以三月□五日",
+    "乙酉□舍利□於八德□",
+]
 
 
 @agent_bp.route("/api/agent/benchmark", methods=["GET"])
 def get_agent_benchmark():
-    """
-    모의 도구·예시 기준값의 비교를 반환합니다.
-    실제 모델 정확도·추론 지연·검수 업무 감소의 측정 결과가 아닙니다.
-    """
+    """Return the 14-mask simulation benchmark with an explicit simulation label."""
     try:
         result = run_before_after_benchmark()
         return jsonify({
             "success": True,
+            "benchmark_mode": "fixture_simulation",
+            "warning": "이 결과는 사전 정의된 후보/지연(time.sleep)을 사용하는 시뮬레이션이며 실모델 정확도나 지연시간 측정값이 아닙니다.",
             "benchmark": result,
         })
     except Exception as e:
@@ -42,84 +51,93 @@ def get_agent_benchmark():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@agent_bp.route("/api/agent/benchmark/real", methods=["POST"])
+def run_real_agent_benchmark():
+    """Compare original vs agent decision stage on a real uploaded rubbing."""
+    data = request.get_json(silent=True) or {}
+    rubbing_id = data.get("rubbing_id")
+    repeats = int(data.get("repeats", 3))
+    ground_truth = data.get("ground_truth_by_position")
+    if not isinstance(rubbing_id, int):
+        return jsonify({"success": False, "error": "integer rubbing_id is required"}), 400
+
+    rubbing = db.session.get(Rubbing, rubbing_id)
+    if not rubbing:
+        return jsonify({"success": False, "error": f"Rubbing {rubbing_id} not found"}), 404
+
+    try:
+        real_inputs = prepare_saved_predictions(rubbing)
+        report = run_paired_real_benchmark(
+            rubbing_id=rubbing.id,
+            title=rubbing.filename or f"rubbing-{rubbing.id}",
+            real_inputs=real_inputs,
+            ground_truth_by_position=ground_truth if isinstance(ground_truth, dict) else None,
+            repeats=repeats,
+        )
+        return jsonify({"success": True, "benchmark": report})
+    except (RealModelUnavailable, ValueError) as e:
+        return jsonify({"success": False, "error": str(e)}), 422
+    except Exception as e:
+        logger.error(f"[Real Agent Benchmark] 실행 오류: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @agent_bp.route("/api/agent/run", methods=["POST"])
 def execute_agent_restoration():
-    """
-    특정 rubbing_id 또는 직접 전달된 text_lines에 대해 LangGraph 에이전트를 실행합니다.
-    rubbing_id가 전달되고 DB에 존재하면, 에이전트가 도출한 후보군과 신뢰도를 DB에 동기화합니다.
-    """
+    """Run LangGraph restoration. Defaults to real mode when rubbing_id is provided."""
     data = request.get_json(silent=True) or {}
-    rubbing_id = data.get("rubbing_id", 1)
-    title = data.get("title", "귀법사적소수좌현응묘지명")
-    text_lines = data.get("text_lines")
-
-    rubbing = None
-    try:
-        rubbing = Rubbing.query.get(rubbing_id)
-    except Exception:
-        rubbing = None
-
-    if not text_lines and rubbing and rubbing.details:
-        raw_content = rubbing.details[0].text_content
-        if raw_content:
-            try:
-                text_lines = json.loads(raw_content) if raw_content.startswith("[") else raw_content.split("\n")
-            except Exception:
-                text_lines = raw_content.split("\n")
-
-    if not text_lines:
-        text_lines = [
-            "高□洛□歸法寺住持",
-            "見性寂炤首□玄應者",
-            "立□第十五□肅宗□子",
-            "□□歲下元己未二月十",
-            "□日甲子薨卒二十一日",
-            "壬申茶□以三月□五日",
-            "乙酉□舍利□於八德□",
-        ]
-
+    rubbing_id = data.get("rubbing_id")
+    mode = data.get("inference_mode") or ("real" if rubbing_id is not None and not data.get("text_lines") else "fixture")
     enable_ollama = bool(data.get("enable_ollama", False))
-    state = run_epitext_agent(
-        rubbing_id=rubbing_id,
-        title=title,
-        text_lines=text_lines,
-        enable_ollama_commentary=enable_ollama,
-    )
 
-    # DB가 초기화된 상태이고 해당 Rubbing이 존재하면 후보군 업데이트
-    if rubbing:
+    if mode not in {"real", "fixture", "mock"}:
+        return jsonify({"success": False, "error": "inference_mode must be 'real' or 'fixture'"}), 400
+
+    if mode == "real":
+        if not isinstance(rubbing_id, int):
+            return jsonify({"success": False, "error": "real inference_mode requires integer rubbing_id"}), 400
+        rubbing = db.session.get(Rubbing, rubbing_id)
+        if not rubbing:
+            return jsonify({"success": False, "error": f"Rubbing {rubbing_id} not found"}), 404
         try:
-            db_targets = RestorationTarget.query.filter_by(rubbing_id=rubbing.id).order_by(
-                RestorationTarget.row_index, RestorationTarget.char_index
-            ).all()
-
-            for idx, t_state in enumerate(state["targets"]):
-                if idx < len(db_targets):
-                    db_t = db_targets[idx]
-                    Candidate.query.filter_by(target_id=db_t.id).delete()
-                    for cand in t_state["final_candidates"]:
-                        c_obj = Candidate(
-                            target_id=db_t.id,
-                            character=cand["character"],
-                            stroke_match=Decimal(str(cand["stroke_match"])) if cand["stroke_match"] is not None else None,
-                            context_match=Decimal(str(cand["context_match"])) if cand["context_match"] is not None else None,
-                            rank_vision=cand["rank_vision"],
-                            rank_nlp=cand["rank_nlp"],
-                            model_type=cand["model_type"],
-                            reliability=Decimal(str(cand["reliability"])),
-                        )
-                        db.session.add(c_obj)
+            real_inputs = prepare_saved_predictions(rubbing)
+            state = run_epitext_agent(
+                rubbing_id=rubbing.id,
+                title=data.get("title") or rubbing.filename or f"rubbing-{rubbing.id}",
+                text_lines=real_inputs["text_lines"],
+                enable_ollama_commentary=enable_ollama,
+                inference_mode="real",
+                vision_candidates_by_position=real_inputs["vision_candidates_by_position"],
+                damage_types_by_position=real_inputs["damage_types_by_position"],
+                target_ids_by_position=real_inputs["target_ids_by_position"],
+            )
+            _sync_agent_candidates_to_db(rubbing.id, state["targets"])
             db.session.commit()
-        except Exception as db_err:
+        except RealModelUnavailable as e:
             db.session.rollback()
-            logger.warning(f"[Agent Run] DB 후보 동기화 생략: {db_err}")
+            return jsonify({"success": False, "inference_mode": "real", "error": str(e)}), 422
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"[Agent Run Real] 실패: {e}", exc_info=True)
+            return jsonify({"success": False, "inference_mode": "real", "error": str(e)}), 500
+    else:
+        raw_lines = data.get("text_lines") or SAMPLE_FIXTURE_LINES
+        if not isinstance(raw_lines, list) or not all(isinstance(line, str) for line in raw_lines):
+            return jsonify({"success": False, "error": "text_lines must be a list of strings"}), 400
+        text_lines = normalized_lines(raw_lines)
+        state = run_epitext_agent(
+            rubbing_id=int(rubbing_id or 0),
+            title=data.get("title", "귀법사적소수좌현응묘지명 (simulation)"),
+            text_lines=text_lines,
+            enable_ollama_commentary=enable_ollama,
+            inference_mode="fixture",
+        )
 
     return jsonify({
         "success": True,
-        "execution_mode": "mock",
-        "model_inference_executed": False,
-        "result_status": "preview",
-        "rubbing_id": rubbing_id,
+        "execution_mode": mode if mode == "real" else "mock",
+        "inference_mode": "real" if mode == "real" else "fixture",
+        "rubbing_id": state["rubbing_id"],
         "inferred_era": state["inferred_era"],
         "triage_route": state["triage_route"],
         "unmasked_count": state["unmasked_count"],
@@ -131,49 +149,90 @@ def execute_agent_restoration():
     })
 
 
+def _sync_agent_candidates_to_db(rubbing_id: int, targets):
+    db_targets = {
+        (int(t.row_index), int(t.char_index)): t
+        for t in RestorationTarget.query.filter_by(rubbing_id=rubbing_id).all()
+        if t.row_index is not None and t.char_index is not None
+    }
+    for t_state in targets:
+        key = (int(t_state["row_index"]), int(t_state["char_index"]))
+        db_target = db_targets.get(key)
+        if not db_target:
+            raise RealModelUnavailable(f"DB target missing for position {key}")
+        t_state["target_id"] = db_target.id
+        Candidate.query.filter_by(target_id=db_target.id).delete()
+        for cand in t_state["final_candidates"]:
+            db.session.add(Candidate(
+                target_id=db_target.id,
+                character=cand["character"],
+                stroke_match=Decimal(str(cand["stroke_match"])) if cand["stroke_match"] is not None else None,
+                context_match=Decimal(str(cand["context_match"])) if cand["context_match"] is not None else None,
+                rank_vision=cand["rank_vision"],
+                rank_nlp=cand["rank_nlp"],
+                model_type=cand["model_type"],
+                reliability=Decimal(str(cand["reliability"])),
+            ))
+
+
 @agent_bp.route("/api/agent/hitl/approve", methods=["POST"])
 def approve_hitl_target():
-    """
-    검수 기록 저장 API 초안입니다.
-    대상 ID 검증·저장 실패 응답·화면 재조회는 보완 대상입니다.
-    """
+    """Persist human-in-the-loop approval. Never returns success unless DB commit succeeded."""
     data = request.get_json(silent=True) or {}
-    rubbing_id = data.get("rubbing_id", 1)
+    rubbing_id = data.get("rubbing_id")
     target_id = data.get("target_id")
-    selected_character = data.get("selected_character")
-    reliability = data.get("reliability", 95.0)
+    selected_character = (data.get("selected_character") or "").strip()
     reviewer_note = data.get("reviewer_note", "사료 RAG 근거 확인 후 전문가 승인")
 
-    if not selected_character:
-        return jsonify({"error": "selected_character is required"}), 400
+    if not isinstance(rubbing_id, int) or not isinstance(target_id, int):
+        return jsonify({"success": False, "error": "integer rubbing_id and target_id are required"}), 400
+    if not selected_character or len(selected_character) != 1:
+        return jsonify({"success": False, "error": "single-character selected_character is required"}), 400
 
-    record_dict = {
-        "rubbing_id": rubbing_id,
-        "target_id": target_id,
-        "selected_character": selected_character,
-        "reliability": reliability,
-        "reviewer_note": reviewer_note,
-        "approved_at": datetime.utcnow().isoformat(),
-    }
+    target = RestorationTarget.query.filter_by(id=target_id, rubbing_id=rubbing_id).first()
+    if not target:
+        return jsonify({"success": False, "error": f"RestorationTarget {target_id} for rubbing {rubbing_id} not found"}), 404
+
+    matched_candidate = Candidate.query.filter_by(
+        target_id=target.id,
+        character=selected_character,
+    ).order_by(Candidate.reliability.desc()).first()
+    reliability = float(matched_candidate.reliability) if matched_candidate and matched_candidate.reliability is not None else float(data.get("reliability", 0.0))
 
     try:
-        if target_id is not None:
+        rec = InspectionRecord.query.filter_by(rubbing_id=rubbing_id, target_id=target.id).first()
+        if rec:
+            rec.selected_character = selected_character
+            rec.selected_candidate_id = matched_candidate.id if matched_candidate else None
+            rec.reliability = Decimal(str(reliability))
+            rec.inspected_at = datetime.utcnow()
+        else:
             rec = InspectionRecord(
                 rubbing_id=rubbing_id,
-                target_id=target_id,
+                target_id=target.id,
                 selected_character=selected_character,
+                selected_candidate_id=matched_candidate.id if matched_candidate else None,
                 reliability=Decimal(str(reliability)),
                 inspected_at=datetime.utcnow(),
             )
             db.session.add(rec)
-            db.session.commit()
-            record_dict["id"] = rec.id
+        db.session.commit()
     except Exception as e:
         db.session.rollback()
-        logger.warning(f"[HITL Approve] DB 기록 생략(인메모리 응답 반환): {e}")
+        logger.error(f"[HITL Approve] DB 저장 실패: {e}", exc_info=True)
+        return jsonify({"success": False, "error": "Failed to persist inspection record"}), 500
 
     return jsonify({
         "success": True,
         "message": f"'{selected_character}' 문자가 최종 복원 기록부에 승인 반영되었습니다.",
-        "audit_record": record_dict,
+        "audit_record": {
+            "id": rec.id,
+            "rubbing_id": rubbing_id,
+            "target_id": target.id,
+            "selected_character": selected_character,
+            "selected_candidate_id": rec.selected_candidate_id,
+            "reliability": float(rec.reliability) if rec.reliability is not None else reliability,
+            "reviewer_note": reviewer_note,
+            "approved_at": rec.inspected_at.isoformat(),
+        },
     })

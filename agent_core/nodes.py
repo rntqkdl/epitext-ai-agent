@@ -52,8 +52,13 @@ def triage_node(state: RubbingAgentState, deps: Optional[SupervisorDeps] = None)
         clean_line = line.replace("，", "").replace("。", "").strip()
         for c_idx, ch in enumerate(clean_line):
             if ch == "□":
+                pos_key = f"{r_idx}:{c_idx}"
+                explicit_damage = (state.get("damage_types_by_position") or {}).get(pos_key)
+                target_id = (state.get("target_ids_by_position") or {}).get(pos_key)
+                if explicit_damage in {"MASK1", "MASK2"}:
+                    m_type = explicit_damage
                 # 연속 손상('□□')에서 첫 글자는 잔여 획이 남은 MASK2, 뒷글자는 완전 소실된 MASK1으로 분류
-                if "□□" in clean_line and c_idx == clean_line.find("□□") + 1:
+                elif "□□" in clean_line and c_idx == clean_line.find("□□") + 1:
                     m_type = "MASK1"
                 elif c_idx == 0 and "日甲子" in clean_line:
                     m_type = "MASK1"
@@ -62,6 +67,7 @@ def triage_node(state: RubbingAgentState, deps: Optional[SupervisorDeps] = None)
 
                 targets.append({
                     "order": order_seq,
+                    "target_id": target_id,
                     "row_index": r_idx,
                     "char_index": c_idx,
                     "position": f"{r_idx + 1}행 {c_idx + 1}자",
@@ -127,12 +133,19 @@ def vision_unmask_node(state: RubbingAgentState, deps: Optional[SupervisorDeps] 
     for t in targets:
         if t["mask_type"] == "MASK2":
             swin_calls += 1
-            preds = vision_fn(
-                surrounding_line=t["surrounding_line"],
-                char_index=t["char_index"],
-                mask_type=t["mask_type"],
-                swin_image_path=state.get("swin_image_path"),
-            )
+            if state.get("inference_mode") == "real":
+                from .real_tools import RealModelUnavailable
+                key = f"{t['row_index']}:{t['char_index']}"
+                preds = (state.get("vision_candidates_by_position") or {}).get(key)
+                if not preds:
+                    raise RealModelUnavailable(f"Missing real Swin output for {key}")
+            else:
+                preds = vision_fn(
+                    surrounding_line=t["surrounding_line"],
+                    char_index=t["char_index"],
+                    mask_type=t["mask_type"],
+                    swin_image_path=state.get("swin_image_path"),
+                )
             t["vision_top_k"] = preds
             if preds and preds[0]["probability"] >= 0.85:
                 best_char = preds[0]["token"]
@@ -176,11 +189,15 @@ def context_mlm_node(state: RubbingAgentState, deps: Optional[SupervisorDeps] = 
 
     for t in state["targets"]:
         mlm_calls += 1
-        refined_preds = mlm_fn(
-            line_text=t["unmasked_line"],
-            char_index=t["char_index"],
-            era=era,
-        )
+        if state.get("inference_mode") == "real":
+            from .real_tools import predict_real_mlm
+            refined_preds = predict_real_mlm(t["unmasked_line"], t["char_index"], era=era)
+        else:
+            refined_preds = mlm_fn(
+                line_text=t["unmasked_line"],
+                char_index=t["char_index"],
+                era=era,
+            )
         t["mlm_refined_top_k"] = refined_preds
 
         if t["surrounding_line"] != t["unmasked_line"]:
@@ -220,12 +237,16 @@ def conflict_rag_arbitration_node(state: RubbingAgentState, deps: Optional[Super
         m_top1 = m_preds[0]["token"] if m_preds else None
         intersection = set(v_map.keys()) & set(m_map.keys())
 
-        if t["mask_type"] == "MASK2" and (not intersection or v_top1 != m_top1):
+        needs_mask2_rag = t["mask_type"] == "MASK2" and (not intersection or v_top1 != m_top1)
+        needs_unmasked_mask1_rag = t["mask_type"] == "MASK1" and t["surrounding_line"] != t["unmasked_line"]
+
+        if needs_mask2_rag or needs_unmasked_mask1_rag:
             t["conflict_detected"] = True
             rag_calls += 1
-            candidate_pool = list(dict.fromkeys([c for c in [v_top1, m_top1] if c]))
+            top_m_tokens = [p["token"] for p in m_preds[:5]]
+            candidate_pool = list(dict.fromkeys([c for c in ([v_top1] + top_m_tokens) if c]))
             rag_res: Dict[str, Any] = rag_fn(
-                surrounding_line=t["surrounding_line"],
+                surrounding_line=t["unmasked_line"] if needs_unmasked_mask1_rag else t["surrounding_line"],
                 candidate_chars=candidate_pool,
                 era=era,
             )
@@ -245,14 +266,24 @@ def conflict_rag_arbitration_node(state: RubbingAgentState, deps: Optional[Super
                 )
                 rag_res["ollama_commentary"] = commentary_text
 
-            for ch in list(v_map.keys()):
-                if ch in verified and m_map.get(ch, 0.0) < 80.0 and v_map[ch] >= 75.0:
-                    m_map[ch] = round(rag_res.get("grounding_score", 0.90) * 100, 1)
-                    m_ranks[ch] = 1
-                    rag_rescued += 1
-                    state["agent_logs"].append(
-                        f"  -> [RAG 구제 성공] {t['position']}: 비전 1순위 '{ch}'(획 {v_map[ch]}%)가 일반 MLM에서 누락/과소평가되었으나, 사료 '{rag_res.get('title')}' 용례 검증으로 구제됨"
-                    )
+            if needs_mask2_rag:
+                for ch in list(v_map.keys()):
+                    if ch in verified and m_map.get(ch, 0.0) < 80.0 and v_map[ch] >= 75.0:
+                        m_map[ch] = round(rag_res.get("grounding_score", 0.90) * 100, 1)
+                        m_ranks[ch] = 1
+                        rag_rescued += 1
+                        state["agent_logs"].append(
+                            f"  -> [RAG 구제 성공] {t['position']}: 비전 1순위 '{ch}'(획 {v_map[ch]}%)가 일반 MLM에서 누락/과소평가되었으나, 사료 '{rag_res.get('title')}' 용례 검증으로 구제됨"
+                        )
+            elif needs_unmasked_mask1_rag:
+                for ch in list(m_map.keys()):
+                    if ch in verified and ch != m_top1:
+                        m_map[ch] = round(rag_res.get("grounding_score", 0.91) * 100, 1)
+                        m_ranks[ch] = 1
+                        rag_rescued += 1
+                        state["agent_logs"].append(
+                            f"  -> [시대 연호 RAG 교정] {t['position']}: MLM 1순위 '{m_top1}'(사고전서 청대 편향) 대신 '{era}' 시대 사료 '{rag_res.get('title')}' 용례 '{ch}' 채택"
+                        )
 
             for conf in rag_res.get("scholarly_conflicts", []):
                 c_char = conf.get("char")

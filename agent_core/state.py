@@ -7,6 +7,7 @@ from typing import TypedDict, List, Dict, Any, Optional
 class MaskTargetState(TypedDict):
     """개별 훼손 문자(MASK1 / MASK2)의 복원 상태 및 추론 근거"""
     order: int                                  # 문장 내 마스크 순번
+    target_id: Optional[int]                    # 실제 DB RestorationTarget.id (모의 실행 시 None)
     row_index: int                              # 행 번호 (0-based)
     char_index: int                             # 열 번호 (0-based)
     position: str                               # "1행 2자" 형식
@@ -41,4 +42,8 @@ class RubbingAgentState(TypedDict):
     hitl_pending_orders: List[int]              # 전문가 승인이 필요한 target order 목록
     agent_logs: List[str]                       # 단계별 에이전트 의사결정 추적 로그
     enable_ollama_commentary: Optional[bool]    # 사료 학설 이견 시 Ollama(Qwen 2.5) 심층 해설 실행 여부
+    inference_mode: Optional[str]               # "real" 또는 "fixture"
+    vision_candidates_by_position: Optional[Dict[str, List[Dict[str, Any]]]]
+    damage_types_by_position: Optional[Dict[str, str]]
+    target_ids_by_position: Optional[Dict[str, int]]
     metrics: Dict[str, Any]                     # 추론 시간(ms), 도구 호출 수, 정확도 비교 지표

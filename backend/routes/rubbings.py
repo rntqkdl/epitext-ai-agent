@@ -187,8 +187,9 @@ def save_results_to_db(rubbing_id, ocr_result, nlp_result, swin_result, combined
                         'item': item
                     })
                 
-                line_str += text
-                char_counter += 1
+                display_text = "□" if 'MASK' in item_type or 'MASK' in text else text
+                line_str += display_text
+                char_counter += len(display_text)
             
             text_lines.append(line_str)
         

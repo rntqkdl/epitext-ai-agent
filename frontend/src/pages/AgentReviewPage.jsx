@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import LiveRestorationPanel from "./LiveRestorationPanel";
 import { getAgentBenchmark, approveAgentHitl } from "../api/requests";
 
 const COLORS = {
@@ -406,6 +407,8 @@ const AgentReviewPage = () => {
             </span>
           </div>
         </div>
+
+        <LiveRestorationPanel />
 
         {/* 상단 3대 지표 카드 (DetailPage 원형 그래프 디자인 계승) */}
         <div className="grid grid-cols-3 gap-5 mb-6">

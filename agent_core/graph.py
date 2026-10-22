@@ -79,6 +79,10 @@ def run_epitext_agent(
     text_lines: List[str],
     swin_image_path: Optional[str] = None,
     enable_ollama_commentary: bool = False,
+    inference_mode: str = "fixture",
+    vision_candidates_by_position: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    damage_types_by_position: Optional[Dict[str, str]] = None,
+    target_ids_by_position: Optional[Dict[str, int]] = None,
     deps: Optional[SupervisorDeps] = None,
 ) -> RubbingAgentState:
     """
@@ -133,12 +137,17 @@ def run_epitext_agent(
         "hitl_pending_orders": [],
         "agent_logs": [],
         "enable_ollama_commentary": enable_ollama_commentary,
+        "inference_mode": inference_mode,
+        "vision_candidates_by_position": vision_candidates_by_position or {},
+        "damage_types_by_position": damage_types_by_position or {},
+        "target_ids_by_position": target_ids_by_position or {},
         "metrics": {},
     }
 
     final_state = app.invoke(initial_state)
     total_ms = round((time.perf_counter() - t_start) * 1000, 2)
     final_state["metrics"]["total_elapsed_ms"] = total_ms
+    final_state["metrics"]["inference_mode"] = inference_mode
     final_state["metrics"]["supervisor_version"] = active_deps.version
     final_state["metrics"]["llm_backend"] = active_deps.llm_backend
     final_state["metrics"]["retry_stats"] = GLOBAL_RETRY_METRICS.to_dict()
